@@ -27,6 +27,13 @@ public:
     int unclosed_fd;
 };
 
+class ftruncate_fd_failed : public std::runtime_error {
+public:
+    ftruncate_fd_failed(const std::string& filename, errc err):
+        std::runtime_error("Failed to ftruncate file \"" + filename + "\": " + err.info()), error(err) {}
+    errc error;
+};
+
 class mmap_fd_failed : public std::runtime_error {
 public:
     mmap_fd_failed(const std::string& filename, errc err, int iunclosed_fd = -1):
