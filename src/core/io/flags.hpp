@@ -72,13 +72,15 @@ public:
     struct permissions_string {
         static constexpr size_t permissions_str_size = 9;
 
+        [[nodiscard]]
         const char* begin() const {
             return data;
         }
+        [[nodiscard]]
         const char* end() const {
             return data + permissions_str_size;
         }
-
+        [[nodiscard]]
         constexpr size_t size() const noexcept {
             return permissions_str_size;
         }
@@ -88,6 +90,7 @@ public:
 
     constexpr file_permissions(perms_e permissions = none): data(permissions) {}
 
+    [[nodiscard]]
     constexpr permissions_string to_string() const {
         return {{
             data & user_read ? 'r' : '-',
@@ -148,6 +151,7 @@ public:
         return !data;
     }
 
+    [[nodiscard]]
     int to_int() const {
         return data;
     }

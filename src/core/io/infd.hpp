@@ -31,11 +31,45 @@ public:
     infd_base_t(const std::string& filename, fd_combined_flag flags = fd_flag::read_only):
         infd_base_t(filename.data(), flags) {}
 
-    infd_base_t(infd_base_t&&) noexcept = default;
-    infd_base_t& operator=(infd_base_t&&) noexcept = default;
+    infd_base_t(const infd_base_t&) = delete;
+    infd_base_t& operator=(const infd_base_t&) = delete;
+
+    infd_base_t(infd_base_t&& ifd) noexcept:
+        fd(ifd.fd),
+        size(ifd.size),
+        pos(ifd.pos),
+        wait_timeout(ifd.wait_timeout),
+        blocking(ifd.blocking),
+        can_blocked(ifd.can_blocked),
+        stat_executed(ifd.stat_executed) {
+        std::memcpy(buf + ifd.pos, ifd.buf + ifd.pos, ifd.size * sizeof(T));
+        ifd.fd = -1;
+    }
+
+    infd_base_t& operator=(infd_base_t&& ifd) noexcept {
+        if (this == &ifd)
+            return *this;
+
+        if (fd >= 0)
+            Impl::impl_close(fd);
+
+        fd = ifd.fd;
+        size = ifd.size;
+        pos = ifd.pos;
+        wait_timeout = ifd.wait_timeout;
+        blocking = ifd.blocking;
+        can_blocked = ifd.can_blocked;
+        stat_executed = ifd.stat_executed;
+
+        std::memcpy(buf + ifd.pos, ifd.buf + ifd.pos, ifd.size * sizeof(T));
+        ifd.fd = -1;
+
+        return *this;
+    }
 
     ~infd_base_t() {
-        Impl::impl_close(fd);
+        if (fd >= 0)
+            Impl::impl_close(fd);
     }
 
     io_read_res read(T* destination, size_t count) noexcept(!exception_on_read_fail) {

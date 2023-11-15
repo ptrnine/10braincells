@@ -11,16 +11,16 @@
 
 namespace core {
 template <typename T, bool Mutable = false, bool autoclose_fd_on_fail = true>
-class mmap_file_range {
+class mmap_file_content {
 public:
     template <typename>
     friend class file_view;
 
     using value_type = std::conditional_t<Mutable, T, const T>;
 
-    mmap_file_range() = default;
+    mmap_file_content() = default;
 
-    mmap_file_range(const char* filename) {
+    mmap_file_content(const char* filename) {
         int fd = open(filename, Mutable ? O_RDWR : O_RDONLY);
         if (fd < 0)
             throw cannot_open_file(filename, errc::from_errno());
@@ -51,16 +51,16 @@ public:
         ::close(fd);
     }
 
-    ~mmap_file_range() {
+    ~mmap_file_content() {
         if (start)
             ::munmap(start, static_cast<size_t>(pend - start));
     }
 
-    mmap_file_range(mmap_file_range&& mfr) noexcept: start(mfr.start), pend(mfr.pend) {
+    mmap_file_content(mmap_file_content&& mfr) noexcept: start(mfr.start), pend(mfr.pend) {
         mfr.start = nullptr;
     }
 
-    mmap_file_range& operator=(mmap_file_range&& mfr) noexcept {
+    mmap_file_content& operator=(mmap_file_content&& mfr) noexcept {
         if (&mfr == this)
             return *this;
 

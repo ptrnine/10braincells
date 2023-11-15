@@ -2,19 +2,19 @@
 
 #include <cstring>
 
-#include <core/io/mmap.hpp>
+#include <core/io/mmap_file_content.hpp>
 
 namespace core {
 template <typename T>
-class file_view {
+class file_content {
 public:
-    file_view() = default;
+    file_content() = default;
 
-    file_view(const char* filename) {
-        mfr = decltype(mfr)(filename);
+    file_content(const char* filename) {
+        mfc = decltype(mfc)(filename);
         int fd;
         try {
-            mfr = mmap_file_range<T, false, false>(filename);
+            mfc = mmap_file_content<T, false, false>(filename);
             return;
         }
         catch (const stat_fd_failed& e) {
@@ -28,49 +28,52 @@ public:
         read_buffered(fd);
     }
 
-    file_view(file_view&& fv) noexcept = default;
+    file_content(const std::string& filename): file_content(filename.data()) {}
 
-    file_view& operator=(file_view&& fv) noexcept {
+    file_content(file_content&& fv) noexcept = default;
+
+    file_content& operator=(file_content&& fv) noexcept {
         if (&fv == this)
             return *this;
 
         if (!really_mmaped) {
-            delete[] mfr.start;
-            mfr.start = nullptr;
-            mfr.pend  = nullptr;
+            delete[] mfc.start;
+            mfc.start = nullptr;
+            mfc.pend  = nullptr;
         }
-        mfr = std::move(fv.mfr);
+        mfc = std::move(fv.mfc);
         really_mmaped = fv.really_mmaped;
 
         return *this;
     }
 
-    ~file_view() {
+    ~file_content() {
         if (!really_mmaped) {
-            delete [] mfr.start;
-            mfr.start = nullptr;
-            mfr.pend = nullptr;
+            delete [] mfc.start;
+            mfc.start = nullptr;
+            mfc.pend = nullptr;
         }
     }
 
     const T* begin() const {
-        return mfr.begin();
+        return mfc.begin();
     }
 
     const T* end() const {
-        return mfr.end();
+        return mfc.end();
     }
 
+    [[nodiscard]]
     bool is_mmaped() const {
         return really_mmaped;
     }
 
     auto& mmap_range() {
-        return mfr;
+        return mfc;
     }
 
     auto& mmap_range() const {
-        return mfr;
+        return mfc;
     }
 
     const T* data() const {
@@ -92,7 +95,7 @@ private:
 
         size_t allocated = 0;
         size_t size      = 0;
-        auto&  data      = mfr.start;
+        auto&  data      = mfc.start;
 
         while ((avail = ::read(fd, buff, buff_size * sizeof(T))) > 0) {
             auto required_allocated = size + size_t(avail);
@@ -117,11 +120,11 @@ private:
             throw sys_read_fail(errc::from_errno());
         }
 
-        mfr.pend = mfr.start + size;
+        mfc.pend = mfc.start + size;
     }
 
 private:
-    mmap_file_range<T, false, false> mfr;
-    bool                             really_mmaped = true;
+    mmap_file_content<T, false, false> mfc;
+    bool                               really_mmaped = true;
 };
 } // namespace core

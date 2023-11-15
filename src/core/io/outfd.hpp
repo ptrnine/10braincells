@@ -113,10 +113,32 @@ public:
         return *this;
     }
 
+    outfd_base_t(outfd_base_t&& ofd) noexcept:
+        fd(ofd.fd), size(ofd.size), pos(ofd.pos), is_fifo_fd(ofd.is_fifo_fd), stat_executed(ofd.stat_executed) {
+        std::memcpy(buf, ofd.buf, ofd.size * sizeof(T));
+        ofd.fd = -1;
+    }
+
+    outfd_base_t& operator=(outfd_base_t&& ofd) noexcept {
+        if (this == &ofd)
+            return *this;
+
+        destroy();
+
+        fd = ofd.fd;
+        size = ofd.size;
+        pos = ofd.pos;
+        is_fifo_fd = ofd.is_fifo_fd;
+        stat_executed = ofd.stat_executed;
+
+        std::memcpy(buf, ofd.buf, ofd.size * sizeof(T));
+        ofd.fd = -1;
+
+        return *this;
+    }
+
     ~outfd_base_t() {
-        if (size != 0)
-            Impl::impl_write(fd, buf, size * sizeof(T));
-        Impl::impl_close(fd);
+        destroy();
     }
 
     DerivedT& write(const T* data, size_t count) noexcept(!exception_on_syswrite_fail) {
@@ -223,6 +245,16 @@ public:
 
     const fd_type& descriptor() const {
         return fd;
+    }
+
+private:
+    void destroy() {
+        if (fd < 0)
+            return;
+
+        if (size != 0)
+            Impl::impl_write(fd, buf, size * sizeof(T));
+        Impl::impl_close(fd);
     }
 
 private:
