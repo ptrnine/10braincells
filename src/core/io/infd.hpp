@@ -6,6 +6,46 @@
 #include <core/io/impl.hpp>
 
 namespace core {
+template <typename T, typename Infd>
+struct infd_scroll_range_base {
+    [[nodiscard]]
+    const T* begin() const {
+        return _ifd->buf;
+    }
+
+    [[nodiscard]]
+    const T* end() const {
+        return _ifd->buf + _ifd->size;
+    }
+
+    [[nodiscard]]
+    const T* data() const {
+        return _ifd->buf;
+    }
+
+    [[nodiscard]]
+    size_t size() const {
+        return _ifd->size;
+    }
+
+    const Infd* _ifd;
+};
+
+template <typename T, typename Infd>
+struct infd_scroll_range : infd_scroll_range_base<T, Infd> {};
+
+template <typename Infd>
+struct infd_scroll_range<char, Infd> : infd_scroll_range_base<char, Infd> {
+    [[nodiscard]]
+    std::string_view to_sv() const {
+        return {this->data(), this->size()};
+    }
+
+    explicit operator std::string_view() const {
+        return to_sv();
+    }
+};
+
 template <typename DerivedT, typename Impl, typename T = char, size_t S = 8192, auto... Settings>
 class infd_base_t : public Impl { // NOLINT
 public:
@@ -39,7 +79,6 @@ public:
         size(ifd.size),
         pos(ifd.pos),
         wait_timeout(ifd.wait_timeout),
-        blocking(ifd.blocking),
         can_blocked(ifd.can_blocked),
         stat_executed(ifd.stat_executed) {
         std::memcpy(buf + ifd.pos, ifd.buf + ifd.pos, ifd.size * sizeof(T));
@@ -57,7 +96,6 @@ public:
         size = ifd.size;
         pos = ifd.pos;
         wait_timeout = ifd.wait_timeout;
-        blocking = ifd.blocking;
         can_blocked = ifd.can_blocked;
         stat_executed = ifd.stat_executed;
 
@@ -101,7 +139,7 @@ public:
     }
 
     io_read_res nonblock_read(T* destination, size_t count) {
-        if (blocking && can_be_blocked()) {
+        if (can_be_blocked()) {
             if (Impl::impl_waitdev(fd, wait_timeout.count()))
                 return read(destination, count);
             else
@@ -109,10 +147,6 @@ public:
         }
         else
             return read(destination, count);
-    }
-
-    bool is_blocking() const noexcept {
-        return blocking;
     }
 
     auto read_wait_timeout() const noexcept {
@@ -136,40 +170,18 @@ public:
     }
 
 private:
-    struct scroll_range {
-        [[nodiscard]]
-        const T* begin() const {
-            return _ifd->buf;
-        }
-
-        [[nodiscard]]
-        const T* end() const {
-            return _ifd->buf + _ifd->size;
-        }
-
-        [[nodiscard]]
-        const T* data() const {
-            return _ifd->buf;
-        }
-
-        [[nodiscard]]
-        size_t size() const {
-            return _ifd->size;
-        }
-
-        const infd_base_t* _ifd;
-    };
+    friend class infd_scroll_range_base<T, infd_base_t>;
 
     class scroll_iterator {
     public:
         scroll_iterator& operator++() {
-            if (prev_rc == io_read_rc::partial) {
+            if (!block_on_fifo && prev_rc == io_read_rc::partial) {
                 ifd = nullptr;
                 return *this;
             }
 
             prev_rc = ifd->take_next();
-            if (prev_rc == io_read_rc::error || ifd->size == 0)
+            if (prev_rc == io_read_rc::error || (!block_on_fifo && ifd->size == 0))
                 ifd = nullptr;
 
             return *this;
@@ -183,13 +195,14 @@ private:
             return !(*this == i);
         }
 
-        scroll_range operator*() const {
+        infd_scroll_range<T, infd_base_t> operator*() const {
             return {ifd};
         }
 
     private:
         friend infd_base_t;
-        scroll_iterator(infd_base_t* ifd_ = nullptr): ifd(ifd_) {
+        scroll_iterator(infd_base_t* ifd_ = nullptr, bool iblock_on_fifo = true):
+            ifd(ifd_), block_on_fifo(iblock_on_fifo) {
             if (!ifd)
                 return;
 
@@ -198,19 +211,26 @@ private:
                 return;
             }
 
+            if (ifd->can_be_blocked()) {
+                if (!block_on_fifo && !Impl::impl_waitdev(ifd->fd, ifd->wait_timeout.count())) {
+                    ifd = nullptr;
+                    return;
+                }
+            }
             ++(*this);
         }
 
     private:
         infd_base_t* ifd;
         io_read_rc   prev_rc = io_read_rc::ok;
+        bool         block_on_fifo;
     };
 
     friend scroll_iterator;
 
     struct scroll {
         scroll_iterator begin() const {
-            return {_ifd};
+            return {_ifd, block_on_fifo};
         }
 
         scroll_iterator end() const {
@@ -218,6 +238,7 @@ private:
         }
 
         infd_base_t* _ifd;
+        bool block_on_fifo;
     };
 
     io_read_rc take_next() {
@@ -239,8 +260,8 @@ private:
     }
 
 public:
-    scroll scroll() & {
-        return {this};
+    scroll scroll(bool block_on_fifo = true) & {
+        return {this, block_on_fifo};
     }
 
 private:
@@ -249,7 +270,6 @@ private:
     size_t                    pos  = 0;
     T                         buf[S];
     std::chrono::microseconds wait_timeout{0};
-    bool                      blocking      = true;
     mutable bool              can_blocked   = false;
     mutable bool              stat_executed = false;
 };
