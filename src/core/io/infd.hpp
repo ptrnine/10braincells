@@ -136,6 +136,90 @@ public:
     }
 
 private:
+    struct scroll_range {
+        [[nodiscard]]
+        const T* begin() const {
+            return _ifd->buf;
+        }
+
+        [[nodiscard]]
+        const T* end() const {
+            return _ifd->buf + _ifd->size;
+        }
+
+        [[nodiscard]]
+        const T* data() const {
+            return _ifd->buf;
+        }
+
+        [[nodiscard]]
+        size_t size() const {
+            return _ifd->size;
+        }
+
+        const infd_base_t* _ifd;
+    };
+
+    class scroll_iterator {
+    public:
+        scroll_iterator& operator++() {
+            if (prev_rc == io_read_rc::partial) {
+                ifd = nullptr;
+                return *this;
+            }
+
+            prev_rc = ifd->take_next();
+            if (prev_rc == io_read_rc::error || ifd->size == 0)
+                ifd = nullptr;
+
+            return *this;
+        }
+
+        bool operator==(const scroll_iterator& i) const {
+            return ifd == i.ifd;
+        }
+
+        bool operator!=(const scroll_iterator& i) const {
+            return !(*this == i);
+        }
+
+        scroll_range operator*() const {
+            return {ifd};
+        }
+
+    private:
+        friend infd_base_t;
+        scroll_iterator(infd_base_t* ifd_ = nullptr): ifd(ifd_) {
+            if (!ifd)
+                return;
+
+            if (ifd->fd < 0) {
+                ifd = nullptr;
+                return;
+            }
+
+            ++(*this);
+        }
+
+    private:
+        infd_base_t* ifd;
+        io_read_rc   prev_rc = io_read_rc::ok;
+    };
+
+    friend scroll_iterator;
+
+    struct scroll {
+        scroll_iterator begin() const {
+            return {_ifd};
+        }
+
+        scroll_iterator end() const {
+            return {};
+        }
+
+        infd_base_t* _ifd;
+    };
+
     io_read_rc take_next() {
         auto [actually_read, rc] = Impl::impl_read(fd, buf, S * sizeof(T));
         size                     = actually_read;
@@ -152,6 +236,11 @@ private:
             return actually_read;
         }
         return 0;
+    }
+
+public:
+    scroll scroll() & {
+        return {this};
     }
 
 private:

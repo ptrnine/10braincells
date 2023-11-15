@@ -94,10 +94,12 @@ struct outfd_linux_impl_t {
         return DerivedT::raw_create(STDIN_FILENO);
     }
 
+    [[nodiscard]]
     constexpr int default_outfd() const noexcept {
         return STDOUT_FILENO;
     }
 
+    [[nodiscard]]
     constexpr int default_infd() const noexcept {
         return STDIN_FILENO;
     }
@@ -138,10 +140,12 @@ struct outfd_devnull_impl {
     }
     static void impl_seek(int, ssize_t) noexcept(!exception_on_seek_fail) {}
 
+    [[nodiscard]]
     constexpr int default_outfd() const noexcept {
         return 0;
     }
 
+    [[nodiscard]]
     constexpr int default_infd() const noexcept {
         return 0;
     }

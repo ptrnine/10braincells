@@ -75,7 +75,7 @@ public:
             size = 0;
             pos  = 0;
         }
-        of.fd = STDOUT_FILENO;
+        of.fd = -1;
     }
 
     template <typename DerivedT2, typename Impl2, typename TT, size_t SS, auto... SSettings>
@@ -89,10 +89,7 @@ public:
         if constexpr (!is_greater_multiple_of_smaller(sizeof(T), sizeof(TT)))
             of.flush();
 
-        if (size != 0)
-            Impl::impl_write(fd, buf, size * sizeof(T));
-
-        Impl::impl_close(fd);
+        destroy();
 
         fd = of.fd;
 
@@ -109,31 +106,7 @@ public:
             size = 0;
             pos  = 0;
         }
-        of.fd = 0;
-        return *this;
-    }
-
-    outfd_base_t(outfd_base_t&& ofd) noexcept:
-        fd(ofd.fd), size(ofd.size), pos(ofd.pos), is_fifo_fd(ofd.is_fifo_fd), stat_executed(ofd.stat_executed) {
-        std::memcpy(buf, ofd.buf, ofd.size * sizeof(T));
-        ofd.fd = -1;
-    }
-
-    outfd_base_t& operator=(outfd_base_t&& ofd) noexcept {
-        if (this == &ofd)
-            return *this;
-
-        destroy();
-
-        fd = ofd.fd;
-        size = ofd.size;
-        pos = ofd.pos;
-        is_fifo_fd = ofd.is_fifo_fd;
-        stat_executed = ofd.stat_executed;
-
-        std::memcpy(buf, ofd.buf, ofd.size * sizeof(T));
-        ofd.fd = -1;
-
+        of.fd = -1;
         return *this;
     }
 
