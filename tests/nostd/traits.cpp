@@ -146,14 +146,19 @@ TEST_CASE("declval") {
 
 #include "core/nostd/traits/idx_of_type.hpp"
 using core::idx_of_type;
+using core::idx_of_type_pack;
 
 template <typename... Ts>
 struct test1 {};
 
 TEST_CASE("idx_of_type") {
-    static_assert(idx_of_type<test1<int, void, float>, void> == 1);
-    static_assert(idx_of_type<test1<int, void, float>, int> == 0);
-    static_assert(idx_of_type<test1<int, void, float>, float> == 2);
+    static_assert(idx_of_type<void, int, void, float> == 1);
+    static_assert(idx_of_type<int, int, void, float> == 0);
+    static_assert(idx_of_type<float, int, void, float> == 2);
+
+    static_assert(idx_of_type_pack<void, test1<int, void, float>> == 1);
+    static_assert(idx_of_type_pack<int, test1<int, void, float>> == 0);
+    static_assert(idx_of_type_pack<float, test1<int, void, float>> == 2);
 }
 
 #include "core/nostd/traits/is_array.hpp"
@@ -400,23 +405,23 @@ TEST_CASE("remove_ref") {
     ENSURE_SAME(std::remove_const_t<std::remove_reference_t<int const* const&>>, const int*);
 }
 
-#include "core/nostd/traits/type_at_index.hpp"
-using core::type_at_index;
-using core::type_at_index_pack;
+#include "core/nostd/traits/type_at_idx.hpp"
+using core::type_at_idx;
+using core::type_at_idx_pack;
 
 template <typename...>
 struct test2;
 
-TEST_CASE("type_at_index") {
-    ENSURE_SAME(type_at_index_pack<test2<int, float, void, void>, 0>, int);
-    ENSURE_SAME(type_at_index_pack<test2<int, float, void, void>, 1>, float);
-    ENSURE_SAME(type_at_index_pack<test2<int, float, void, void>, 2>, void);
-    ENSURE_SAME(type_at_index_pack<test2<int, float, void, void>, 3>, void);
+TEST_CASE("type_at_idx") {
+    ENSURE_SAME(type_at_idx_pack<0, test2<int, float, void, void>>, int);
+    ENSURE_SAME(type_at_idx_pack<1, test2<int, float, void, void>>, float);
+    ENSURE_SAME(type_at_idx_pack<2, test2<int, float, void, void>>, void);
+    ENSURE_SAME(type_at_idx_pack<3, test2<int, float, void, void>>, void);
 
-    ENSURE_SAME(type_at_index<0, int, float, void, void>, int);
-    ENSURE_SAME(type_at_index<1, int, float, void, void>, float);
-    ENSURE_SAME(type_at_index<2, int, float, void, void>, void);
-    ENSURE_SAME(type_at_index<3, int, float, void, void>, void);
+    ENSURE_SAME(type_at_idx<0, int, float, void, void>, int);
+    ENSURE_SAME(type_at_idx<1, int, float, void, void>, float);
+    ENSURE_SAME(type_at_idx<2, int, float, void, void>, void);
+    ENSURE_SAME(type_at_idx<3, int, float, void, void>, void);
 }
 
 #include "core/nostd/traits/make_signed.hpp"

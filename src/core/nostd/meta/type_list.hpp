@@ -2,7 +2,7 @@
 
 #include "../concepts/inheritance.hpp"
 #include "../int_const.hpp"
-#include "../traits/type_at_index.hpp"
+#include "../traits/type_at_idx.hpp"
 #include "../utility/forward.hpp"
 #include "../utility/idx_dispatch.hpp"
 #include "../utility/move.hpp"
@@ -73,7 +73,7 @@ struct type_list_t {
 
     template <auto v>
     constexpr auto operator[](int_const<v>) const {
-        return type<type_at_index<size_t(v), Ts...>>;
+        return type<type_at_idx<size_t(v), Ts...>>;
     }
 
     constexpr auto foreach(auto&& handler) const {

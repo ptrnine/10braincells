@@ -15,15 +15,21 @@ namespace dtls {
         return type_indexer<Ts...>{{Sz}...};
     }
 
-    template <typename Pack, typename T>
-    struct _index_of_type;
-
-    template <template <typename...> typename Pack, typename T, typename... Ts>
-    struct _index_of_type<Pack<Ts...>, T> {
+    template <typename T, typename... Ts>
+    struct _index_of_type {
         static inline constexpr auto value = get<type<T>>(make_type_indexer<Ts...>(make_idx_seq<sizeof...(Ts)>()));
     };
+
+    template <typename T, typename Pack>
+    struct _index_of_type_pack;
+
+    template <typename T, template <typename...> typename Pack, typename... Ts>
+    struct _index_of_type_pack<T, Pack<Ts...>> : _index_of_type<T, Ts...> {};
 } // namespace dtls
 
-template <typename Pack, typename T>
-static inline constexpr auto idx_of_type = dtls::_index_of_type<Pack, T>::value;
+template <typename T, typename... Ts>
+static inline constexpr auto idx_of_type = dtls::_index_of_type<T, Ts...>::value;
+
+template <typename T, typename Pack>
+static inline constexpr auto idx_of_type_pack = dtls::_index_of_type_pack<T, Pack>::value;
 } // namespace core
