@@ -87,7 +87,7 @@ TEST_CASE("int_seq") {
 }
 
 #include "core/nostd/utility/move.hpp"
-using core::move;
+using core::mov;
 
 TEST_CASE("move") {
     enum class pass_type { lv, clv, rv, crv };
@@ -116,14 +116,14 @@ TEST_CASE("move") {
     static_assert(t.f(cv) == pass_type::clv);
     static_assert(t.f(1) == pass_type::rv);
 
-    static_assert(t.f(move(v)) == pass_type::rv);
-    static_assert(t.f(move(cv)) == pass_type::crv);
-    static_assert(t.f(move(1)) == pass_type::rv);
+    static_assert(t.f(mov(v)) == pass_type::rv);
+    static_assert(t.f(mov(cv)) == pass_type::crv);
+    static_assert(t.f(mov(1)) == pass_type::rv);
 }
 
 #include "core/nostd/traits/is_same.hpp"
 #include "core/nostd/utility/forward.hpp"
-using core::forward;
+using core::fwrd;
 using core::is_same;
 
 TEST_CASE("forward") {
@@ -143,7 +143,7 @@ TEST_CASE("forward") {
     };
 
     constexpr auto test_forward = []<typename T>(auto test, T&& v) {
-        return test(forward<T>(v));
+        return test(fwrd<T>(v));
     };
     constexpr auto test_std_forward = []<typename T>(auto test, T&& v) {
         return test(std::forward<T>(v));
@@ -160,25 +160,25 @@ TEST_CASE("forward") {
 
     static_assert(test_forward(test, value) == value_type::lv);
     static_assert(test_forward(test, cv) == value_type::clv);
-    static_assert(test_forward(test, move(value)) == value_type::rv);
-    static_assert(test_forward(test, move(cv)) == value_type::crv);
+    static_assert(test_forward(test, mov(value)) == value_type::rv);
+    static_assert(test_forward(test, mov(cv)) == value_type::crv);
     static_assert(test_forward(test, 1) == value_type::rv);
 
     static_assert(test_std_forward(test, value) == value_type::lv);
     static_assert(test_std_forward(test, cv) == value_type::clv);
-    static_assert(test_std_forward(test, move(value)) == value_type::rv);
-    static_assert(test_std_forward(test, move(cv)) == value_type::crv);
+    static_assert(test_std_forward(test, mov(value)) == value_type::rv);
+    static_assert(test_std_forward(test, mov(cv)) == value_type::crv);
     static_assert(test_std_forward(test, 1) == value_type::rv);
 
     static_assert(test_fwd(test, value) == value_type::lv);
     static_assert(test_fwd(test, cv) == value_type::clv);
-    static_assert(test_fwd(test, move(value)) == value_type::rv);
-    static_assert(test_fwd(test, move(cv)) == value_type::crv);
+    static_assert(test_fwd(test, mov(value)) == value_type::rv);
+    static_assert(test_fwd(test, mov(cv)) == value_type::crv);
     static_assert(test_fwd(test, 1) == value_type::rv);
 
     static_assert(no_forward(test, value) == value_type::lv);
     static_assert(no_forward(test, cv) == value_type::clv);
-    static_assert(no_forward(test, move(value)) == value_type::lv);
-    static_assert(no_forward(test, move(cv)) == value_type::clv);
+    static_assert(no_forward(test, mov(value)) == value_type::lv);
+    static_assert(no_forward(test, mov(cv)) == value_type::clv);
     static_assert(no_forward(test, 1) == value_type::lv);
 }

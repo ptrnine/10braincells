@@ -6,7 +6,7 @@ namespace core
 {
 template <typename F>
 struct finalizer {
-    finalizer(F ifinalizer): finalizer_f(move(ifinalizer)) {}
+    finalizer(F ifinalizer): finalizer_f(mov(ifinalizer)) {}
     ~finalizer() {
         if (!dismissed)
             finalizer_f();

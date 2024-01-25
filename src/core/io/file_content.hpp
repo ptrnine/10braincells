@@ -41,7 +41,7 @@ public:
             mfc.start = nullptr;
             mfc.pend  = nullptr;
         }
-        mfc = std::move(fv.mfc);
+        mfc = mov(fv.mfc);
         really_mmaped = fv.really_mmaped;
 
         return *this;

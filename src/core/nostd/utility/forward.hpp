@@ -15,4 +15,14 @@ template <typename T>
 constexpr T&& forward(remove_ref<T>&& v) noexcept {
     return static_cast<T&&>(v);
 }
+
+/* To not conflict with std::forward */
+template <typename T>
+constexpr T&& fwrd(remove_ref<T>& v) noexcept {
+    return static_cast<T&&>(v);
+}
+template <typename T>
+constexpr T&& fwrd(remove_ref<T>&& v) noexcept {
+    return static_cast<T&&>(v);
+}
 } // namespace core

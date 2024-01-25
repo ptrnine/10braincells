@@ -12,7 +12,7 @@ namespace core {
 namespace details {
     template <typename Type, typename F>
     struct type_list_reduce_helper {
-        type_list_reduce_helper(type_t<Type>, F func): f(move(func)) {}
+        type_list_reduce_helper(type_t<Type>, F func): f(mov(func)) {}
         F f;
     };
 

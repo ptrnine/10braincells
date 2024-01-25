@@ -7,7 +7,7 @@ namespace core
 {
 template <typename F>
 struct exception_guard {
-    exception_guard(F ifinalizer): finalizer(move(ifinalizer)) {}
+    exception_guard(F ifinalizer): finalizer(mov(ifinalizer)) {}
     ~exception_guard() {
         if (!dismissed && uncaught_exceptions() != uncaught)
             finalizer();
