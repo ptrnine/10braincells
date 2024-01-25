@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #include <core/errc.hpp>
-#include <core/finalizers.hpp>
+#include <core/exception_guard.hpp>
 #include <core/io/exceptions.hpp>
 
 namespace core {
