@@ -1,4 +1,4 @@
-#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch.hpp>
 
 #include "core/nostd/utility/idx_dispatch.hpp"
 #include "core/nostd/utility/idx_dispatch_r.hpp"

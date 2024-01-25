@@ -1,5 +1,5 @@
 #include <type_traits>
-#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch.hpp>
 
 #include "core/nostd/traits/is_same.hpp"
 #define ENSURE_SAME(...) static_assert(std::is_same_v<__VA_ARGS__>)
