@@ -27,7 +27,7 @@ constexpr const T& get(const ebo<idx, T>& e) noexcept {
 }
 
 template <auto idx, typename T> requires (!integral<decltype(idx)>)
-constexpr T get(ebo<idx, T>&& e) noexcept {
+constexpr T&& get(ebo<idx, T>&& e) noexcept {
     return static_cast<T&&>(e.data);
 }
 
@@ -42,7 +42,7 @@ constexpr const T& get(const ebo<idx, T>& e) noexcept {
 }
 
 template <auto idx, ebo_super T> requires (!integral<decltype(idx)>)
-constexpr T get(ebo<idx, T>&& e) noexcept {
+constexpr T&& get(ebo<idx, T>&& e) noexcept {
     return static_cast<T&&>(e);
 }
 
@@ -58,7 +58,7 @@ constexpr const T& get(const ebo<idx, T>& e) noexcept {
 }
 
 template <size_t idx, typename T>
-constexpr T get(ebo<idx, T>&& e) noexcept {
+constexpr T&& get(ebo<idx, T>&& e) noexcept {
     return static_cast<T&&>(e.data);
 }
 
@@ -73,7 +73,7 @@ constexpr const T& get(const ebo<idx, T>& e) noexcept {
 }
 
 template <size_t idx, ebo_super T>
-constexpr T get(ebo<idx, T>&& e) noexcept {
+constexpr T&& get(ebo<idx, T>&& e) noexcept {
     return static_cast<T&&>(e);
 }
 } // namespace core
