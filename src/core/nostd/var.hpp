@@ -370,12 +370,21 @@ struct var_base<Ts...> {
     constexpr void _emplace(int_const<I> i, auto&&... args) {
         /* TODO: optimize for nothrow ctor
          * it is not necessary to change storage in nothrow case
+         *
+         * XXX: Optimized, should be tested
          */
-        auto newbpos = _b._bpos ^ 1;
-        _storage[newbpos].emplace(i + size_c<1>, fwd(args)...);
-        _destroy();
-        _b._idx  = i_type(i);
-        _b._bpos = u8(newbpos);
+        if constexpr (nothrow_ctor<type_at_idx<i, Ts...>, decltype(args)...>) {
+            _destroy();
+            _storage[_b._bpos].emplace(i + size_c<1>, fwd(args)...);
+            _b._idx = i_type(i);
+        }
+        else {
+            auto newbpos = _b._bpos ^ 1;
+            _storage[newbpos].emplace(i + size_c<1>, fwd(args)...);
+            _destroy();
+            _b._idx  = i_type(i);
+            _b._bpos = u8(newbpos);
+        }
     }
 
     template <size_t I>
@@ -429,11 +438,19 @@ struct var_base<Ts...> {
     constexpr void _emplace(int_const<I> i, auto&&... args) {
         /* TODO: optimize for nothrow ctor
          * it is not necessary to change storage in nothrow case
+         *
+         * XXX: Optimized, should be tested
          */
-        auto newpos = _b._bpos ^ 1;// 1 - (_idx & 1);
-        _storage[newpos].emplace(i + size_c<1>, fwd(args)...);
-        _b._idx = i_type(i);
-        _b._bpos = u8(newpos);
+        if constexpr (nothrow_ctor<type_at_idx<i, Ts...>, decltype(args)...>) {
+            _storage[_b._bpos].emplace(i + size_c<1>, fwd(args)...);
+            _b._idx = i_type(i);
+        }
+        else {
+            auto newpos = _b._bpos ^ 1;
+            _storage[newpos].emplace(i + size_c<1>, fwd(args)...);
+            _b._idx = i_type(i);
+            _b._bpos = u8(newpos);
+        }
     }
 
     template <size_t I>
