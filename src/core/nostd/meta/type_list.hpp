@@ -5,6 +5,7 @@
 #include "../traits/type_at_idx.hpp"
 #include "../utility/forward.hpp"
 #include "../utility/idx_dispatch.hpp"
+#include "../utility/int_seq.hpp"
 #include "../utility/move.hpp"
 #include "type.hpp"
 
@@ -12,15 +13,21 @@ namespace core {
 namespace details {
     template <typename Type, typename F>
     struct type_list_reduce_helper {
-        type_list_reduce_helper(type_t<Type>, F func): f(mov(func)) {}
+        constexpr type_list_reduce_helper(type_t<Type>, F func): f(mov(func)) {}
         F f;
     };
 
     template <typename V, typename T, typename F>
-    auto operator+(V&& v, type_list_reduce_helper<T, F>&& f) {
+    constexpr auto operator+(V&& v, type_list_reduce_helper<T, F>&& f) {
         return f.f(forward<V>(v), type<T>);
     }
 }
+
+template <size_t I, typename T>
+struct indexed_type {
+    static inline constexpr size_t idx = I;
+    using type = T;
+};
 
 template <typename... Ts>
 struct type_list_t {
@@ -94,10 +101,29 @@ struct type_list_t {
             return function(operator[](idx));
         });
     }
+
+    constexpr auto indexed() const;
 };
 
 template <typename... Ts>
 static inline constexpr type_list_t<Ts...> type_list = {};
+
+namespace details {
+    template <typename... Ts, size_t... Idxs>
+    constexpr type_list_t<indexed_type<Idxs, Ts>...> make_indexed_helper(type_list_t<Ts...>, idx_seq<Idxs...>) {
+        return {};
+    }
+}
+
+template <typename... Ts>
+constexpr auto make_indexed(type_list_t<Ts...> tl) {
+    return details::make_indexed_helper(tl, make_idx_seq<sizeof...(Ts)>());
+}
+
+template <typename... Ts>
+constexpr auto type_list_t<Ts...>::indexed() const {
+    return make_indexed(*this);
+}
 
 template <typename T1, typename T2>
 constexpr type_list_t<T1, T2> operator+(type_t<T1>, type_t<T2>) {
