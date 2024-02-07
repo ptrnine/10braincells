@@ -1,20 +1,21 @@
 #pragma once
 
+
+#if 0
+namespace core {
 #include "declval.hpp"
 
-namespace core {
 template <typename T>
 using decay = decltype(auto(declval<T>()));
 } // namespace core
+#endif
 
-
-#if 0
 #include "is_array.hpp"
 #include "remove_extent.hpp"
 #include "remove_ref.hpp"
 #include "remove_cv.hpp"
 #include "is_function.hpp"
-#include "add_pointer.hpp"
+#include "add_ptr.hpp"
 
 namespace core {
 namespace details_traits {
@@ -28,11 +29,11 @@ namespace details_traits {
     };
     template <typename T> requires is_function<T>
     struct decay<T> {
-        using type = typename add_pointer<T>::type;
+        using type = add_ptr<T>;
     };
 } // namespace details_traits
+
 template <typename T>
 using decay = typename details_traits::decay<remove_ref<T>>::type;
 
 } // namespace core
-#endif
