@@ -1,4 +1,4 @@
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "core/nostd/utility/idx_dispatch.hpp"
 #include "core/nostd/utility/idx_dispatch_r.hpp"
@@ -123,8 +123,10 @@ TEST_CASE("move") {
 
 #include "core/nostd/traits/is_same.hpp"
 #include "core/nostd/utility/forward.hpp"
-using core::fwrd;
+using core::fwd;
 using core::is_same;
+
+#define FWD(what) static_cast<decltype(what)>(what)
 
 TEST_CASE("forward") {
     enum class value_type { lv, clv, rv, crv, v };
@@ -143,13 +145,13 @@ TEST_CASE("forward") {
     };
 
     constexpr auto test_forward = []<typename T>(auto test, T&& v) {
-        return test(fwrd<T>(v));
+        return test(fwd<T>(v));
     };
     constexpr auto test_std_forward = []<typename T>(auto test, T&& v) {
         return test(std::forward<T>(v));
     };
     constexpr auto test_fwd = [](auto test, auto&& v) {
-        return test(fwd(v));
+        return test(FWD(v));
     };
     constexpr auto no_forward = [](auto test, auto&& v) {
         return test(v);
@@ -181,4 +183,12 @@ TEST_CASE("forward") {
     static_assert(no_forward(test, mov(value)) == value_type::lv);
     static_assert(no_forward(test, mov(cv)) == value_type::clv);
     static_assert(no_forward(test, 1) == value_type::lv);
+}
+
+#include "core/nostd/utility/as_const.hpp"
+using core::as_const;
+
+TEST_CASE("as_const") {
+    int a = 0;
+    static_assert(is_same<decltype(as_const(a)), const int&>);
 }

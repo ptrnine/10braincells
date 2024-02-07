@@ -5,11 +5,10 @@ add_executable(tests-nostd
     traits.cpp
     tuple.cpp
     utility.cpp
-    main.cpp
 )
 
 target_compile_options(tests-nostd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
-target_compile_definitions(tests-nostd PRIVATE -DENABLE_FORWARD_MACRO)
+target_compile_options(tests-nostd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-sign-conversion>)
 
-target_link_libraries(tests-nostd self::src Catch2::Catch2)
+target_link_libraries(tests-nostd self::src Catch2::Catch2 Catch2::Catch2WithMain)
 catch_discover_tests(tests-nostd)

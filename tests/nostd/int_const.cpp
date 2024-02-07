@@ -1,4 +1,4 @@
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "core/nostd/int_const.hpp"
 using namespace core::int_const_literals;

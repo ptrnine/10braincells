@@ -1,4 +1,4 @@
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "core/nostd/meta/nttp.hpp"
 using core::nttp;
@@ -36,6 +36,7 @@ TEST_CASE("type") {
 #include "core/nostd/meta/type_list.hpp"
 using core::type_list;
 using core::type;
+using core::indexed_type;
 using namespace core::int_const_literals;
 
 TEST_CASE("type_list") {
@@ -122,5 +123,10 @@ TEST_CASE("type_list") {
             REQUIRE(t == type<void>);
         });
         REQUIRE(called == 1);
+    }
+
+    SECTION("indexed") {
+        static_assert(type_list<int, void, float>.indexed() ==
+                      type_list<indexed_type<0, int>, indexed_type<1, void>, indexed_type<2, float>>);
     }
 }

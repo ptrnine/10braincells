@@ -1,5 +1,5 @@
 #include <type_traits>
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "core/nostd/traits/is_same.hpp"
 #define ENSURE_SAME(...) static_assert(std::is_same_v<__VA_ARGS__>)
@@ -433,3 +433,40 @@ TEST_CASE("make_signed") {
     ENSURE_SAME(make_signed<core::u32>, core::i32);
     ENSURE_SAME(make_signed<core::u64>, core::i64);
 }
+
+#include "core/nostd/traits/add_const.hpp"
+#include "core/nostd/traits/add_volatile.hpp"
+#include "core/nostd/traits/add_cv.hpp"
+using core::add_const;
+using core::add_volatile;
+using core::add_cv;
+
+TEST_CASE("add_const/add_volatile/add_cv") {
+    ENSURE_SAME(add_const<int>, const int);
+    ENSURE_SAME(std::add_const_t<int>, const int);
+
+    ENSURE_SAME(std::add_const_t<int&>, int&);
+    ENSURE_SAME(add_const<int&>, int&);
+
+    ENSURE_SAME(std::add_const_t<int()>, int());
+    ENSURE_SAME(add_const<int()>, int());
+
+    ENSURE_SAME(add_volatile<int>, volatile int);
+    ENSURE_SAME(std::add_volatile_t<int>, volatile int);
+
+    ENSURE_SAME(std::add_volatile_t<int&>, int&);
+    ENSURE_SAME(add_volatile<int&>, int&);
+
+    ENSURE_SAME(std::add_volatile_t<int()>, int());
+    ENSURE_SAME(add_volatile<int()>, int());
+
+    ENSURE_SAME(add_cv<int>, const volatile int);
+    ENSURE_SAME(std::add_cv_t<int>, const volatile int);
+
+    ENSURE_SAME(std::add_cv_t<int&>, int&);
+    ENSURE_SAME(add_cv<int&>, int&);
+
+    ENSURE_SAME(std::add_cv_t<int()>, int());
+    ENSURE_SAME(add_cv<int()>, int());
+}
+
