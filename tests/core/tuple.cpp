@@ -2,13 +2,13 @@
 
 #include <tuple>
 
-#include <core/nostd/concepts/integral.hpp>
-#include <core/nostd/tuple.hpp>
-#include <core/nostd/traits/is_same.hpp>
-#include <core/nostd/utility/overloaded.hpp>
-#include <core/nostd/var.hpp>
-#include <core/nostd/traits/is_same.hpp>
-#include <core/nostd/utility/as_const.hpp>
+#include <core/concepts/integral.hpp>
+#include <core/tuple.hpp>
+#include <core/traits/is_same.hpp>
+#include <core/utility/overloaded.hpp>
+#include <core/var.hpp>
+#include <core/traits/is_same.hpp>
+#include <core/utility/as_const.hpp>
 
 using core::integral;
 using core::is_same;

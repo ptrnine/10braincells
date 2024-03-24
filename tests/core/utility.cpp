@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "core/nostd/utility/idx_dispatch.hpp"
-#include "core/nostd/utility/idx_dispatch_r.hpp"
+#include "core/utility/idx_dispatch.hpp"
+#include "core/utility/idx_dispatch_r.hpp"
 using core::idx_dispatch;
 using core::idx_dispatch_r;
 using core::int_const;
@@ -65,7 +65,7 @@ TEST_CASE("idx_dispatch") {
 }
 
 #include <array>
-#include "core/nostd/utility/int_seq.hpp"
+#include "core/utility/int_seq.hpp"
 using core::int_seq;
 using core::idx_seq;
 using core::make_int_seq;
@@ -86,7 +86,7 @@ TEST_CASE("int_seq") {
     }
 }
 
-#include "core/nostd/utility/move.hpp"
+#include "core/utility/move.hpp"
 using core::mov;
 
 TEST_CASE("move") {
@@ -121,8 +121,8 @@ TEST_CASE("move") {
     static_assert(t.f(mov(1)) == pass_type::rv);
 }
 
-#include "core/nostd/traits/is_same.hpp"
-#include "core/nostd/utility/forward.hpp"
+#include "core/traits/is_same.hpp"
+#include "core/utility/forward.hpp"
 using core::fwd;
 using core::is_same;
 
@@ -185,7 +185,7 @@ TEST_CASE("forward") {
     static_assert(no_forward(test, 1) == value_type::lv);
 }
 
-#include "core/nostd/utility/as_const.hpp"
+#include "core/utility/as_const.hpp"
 using core::as_const;
 
 TEST_CASE("as_const") {

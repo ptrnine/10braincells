@@ -1,7 +1,7 @@
 #pragma once
 
-#include <core/nostd/exception.hpp>
-#include <core/nostd/utility/move.hpp>
+#include <core/exception.hpp>
+#include <core/utility/move.hpp>
 
 namespace core
 {

@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "core/nostd/meta/nttp.hpp"
+#include "core/meta/nttp.hpp"
 using core::nttp;
 
 TEST_CASE("nttp") {
@@ -17,8 +17,8 @@ TEST_CASE("nttp") {
     static_assert(b == test{1, 2, 3, 4});
 }
 
-#include "core/nostd/meta/type.hpp"
-#include "core/nostd/traits/is_same.hpp"
+#include "core/meta/type.hpp"
+#include "core/traits/is_same.hpp"
 using core::type;
 using core::type_of;
 using core::is_same;
@@ -33,7 +33,7 @@ TEST_CASE("type") {
     static_assert(is_same<decltype(+t1), decltype(t2)::type>);
 }
 
-#include "core/nostd/meta/type_list.hpp"
+#include "core/meta/type_list.hpp"
 using core::type_list;
 using core::type;
 using core::indexed_type;

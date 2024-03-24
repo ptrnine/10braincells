@@ -1,17 +1,17 @@
 #pragma once
 
-#include <core/nostd/concepts/assign.hpp>
-#include <core/nostd/concepts/ctor.hpp>
-#include <core/nostd/concepts/inheritance.hpp>
-#include <core/nostd/concepts/nothrow_assign.hpp>
-#include <core/nostd/concepts/nothrow_ctor.hpp>
-#include <core/nostd/concepts/same_as.hpp>
-#include <core/nostd/concepts/trivial_assign.hpp>
-#include <core/nostd/concepts/trivial_ctor.hpp>
-#include <core/nostd/concepts/trivial_dtor.hpp>
-#include <core/nostd/meta/init.hpp>
-#include <core/nostd/traits/is_ref.hpp>
-#include <core/nostd/traits/remove_ref.hpp>
+#include <core/concepts/assign.hpp>
+#include <core/concepts/ctor.hpp>
+#include <core/concepts/inheritance.hpp>
+#include <core/concepts/nothrow_assign.hpp>
+#include <core/concepts/nothrow_ctor.hpp>
+#include <core/concepts/same_as.hpp>
+#include <core/concepts/trivial_assign.hpp>
+#include <core/concepts/trivial_ctor.hpp>
+#include <core/concepts/trivial_dtor.hpp>
+#include <core/meta/init.hpp>
+#include <core/traits/is_ref.hpp>
+#include <core/traits/remove_ref.hpp>
 #include <core/null.hpp>
 
 #define fwd(what) static_cast<decltype(what)>(what)

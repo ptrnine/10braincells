@@ -5,7 +5,7 @@
  * any_of
  */
 
-#include "core/nostd/concepts/any_of.hpp"
+#include "core/concepts/any_of.hpp"
 using core::any_of;
 
 template <typename T>
@@ -39,7 +39,7 @@ TEST_CASE("any_of") {
  * assign, copy_assign, move_assign
  */
 
-#include "core/nostd/concepts/assign.hpp"
+#include "core/concepts/assign.hpp"
 using core::assign;
 using core::copy_assign;
 using core::move_assign;
@@ -154,7 +154,7 @@ TEST_CASE("assign") {
     static_assert(move_assign<some_assign_test>);
 }
 
-#include "core/nostd/concepts/convertible_to.hpp"
+#include "core/concepts/convertible_to.hpp"
 using core::convertible_to;
 
 TEST_CASE("convertible_to") {
@@ -191,7 +191,7 @@ TEST_CASE("convertible_to") {
     static_assert(!convertible_to<class1, class5>);
 }
 
-#include "core/nostd/concepts/ctor.hpp"
+#include "core/concepts/ctor.hpp"
 using core::copy_ctor;
 using core::ctor;
 using core::default_ctor;
@@ -250,7 +250,7 @@ TEST_CASE("ctor") {
     static_assert(!move_ctor<class5>);
 }
 
-#include "core/nostd/concepts/inheritance.hpp"
+#include "core/concepts/inheritance.hpp"
 using core::empty_class;
 using core::final_class;
 using core::base_of;
@@ -282,7 +282,7 @@ TEST_CASE("inheritance") {
     static_assert(!base_of<empty, not_empty>);
 }
 
-#include "core/nostd/concepts/invocable.hpp"
+#include "core/concepts/invocable.hpp"
 using core::invocable;
 using core::invocable_r;
 
@@ -303,7 +303,7 @@ TEST_CASE("invocable") {
     static_assert(invocable_r<const char*, decltype(f2), int>);
 }
 
-#include "core/nostd/concepts/nothrow_assign.hpp"
+#include "core/concepts/nothrow_assign.hpp"
 using core::nothrow_assign;
 using core::nothrow_copy_assign;
 using core::nothrow_move_assign;
@@ -360,7 +360,7 @@ TEST_CASE("nothrow_assign") {
     static_assert(nothrow_move_assign<test2>);
 }
 
-#include "core/nostd/concepts/nothrow_ctor.hpp"
+#include "core/concepts/nothrow_ctor.hpp"
 using core::nothrow_ctor;
 using core::nothrow_copy_ctor;
 using core::nothrow_move_ctor;
@@ -405,7 +405,7 @@ TEST_CASE("nothrow_ctor") {
     static_assert(nothrow_move_ctor<test2>);
 }
 
-#include "core/nostd/concepts/referenceable.hpp"
+#include "core/concepts/referenceable.hpp"
 using core::referenceable;
 
 TEST_CASE("referenceable") {
@@ -419,7 +419,7 @@ TEST_CASE("referenceable") {
     static_assert(referenceable<int[]>);
 }
 
-#include "core/nostd/concepts/same_as.hpp"
+#include "core/concepts/same_as.hpp"
 using core::same_as;
 
 TEST_CASE("same_as") {
@@ -428,7 +428,7 @@ TEST_CASE("same_as") {
     static_assert(!same_as<int, float>);
 }
 
-#include "core/nostd/concepts/trivial_assign.hpp"
+#include "core/concepts/trivial_assign.hpp"
 using core::trivial_assign;
 using core::trivial_copy_assign;
 using core::trivial_move_assign;
@@ -484,7 +484,7 @@ TEST_CASE("trivial_assign") {
     static_assert(!trivial_assign<test4&, const test5&>);
 }
 
-#include "core/nostd/concepts/trivial_ctor.hpp"
+#include "core/concepts/trivial_ctor.hpp"
 using core::trivial_ctor;
 using core::trivial_copy_ctor;
 using core::trivial_move_ctor;
@@ -536,7 +536,7 @@ TEST_CASE("trivial_ctor") {
     static_assert(trivial_ctor<test6, int>);
 }
 
-#include "core/nostd/concepts/trivial_dtor.hpp"
+#include "core/concepts/trivial_dtor.hpp"
 using core::trivial_dtor;
 
 TEST_CASE("trivial_dtor") {
@@ -559,7 +559,7 @@ TEST_CASE("trivial_dtor") {
     static_assert(!trivial_dtor<test3>);
 }
 
-#include "core/nostd/concepts/variant.hpp"
+#include "core/concepts/variant.hpp"
 #include <variant>
 using core::variant;
 

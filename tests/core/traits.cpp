@@ -1,10 +1,10 @@
 #include <type_traits>
 #include <catch2/catch_test_macros.hpp>
 
-#include "core/nostd/traits/is_same.hpp"
+#include "core/traits/is_same.hpp"
 #define ENSURE_SAME(...) static_assert(std::is_same_v<__VA_ARGS__>)
 
-#include "core/nostd/traits/add_ptr.hpp"
+#include "core/traits/add_ptr.hpp"
 using core::add_ptr;
 
 TEST_CASE("add_pointer") {
@@ -32,7 +32,7 @@ TEST_CASE("add_pointer") {
     ENSURE_SAME(add_ptr<void(Class::*)() const>, void(Class::**)() const);
 }
 
-#include "core/nostd/traits/add_ref.hpp"
+#include "core/traits/add_ref.hpp"
 using core::add_lvalue_ref;
 using core::add_rvalue_ref;
 
@@ -81,7 +81,7 @@ TEST_CASE("add_ref") {
     ENSURE_SAME(add_rvalue_ref<void(Class::*)() const>, void(Class::*&&)() const);
 }
 
-#include "core/nostd/traits/conditional.hpp"
+#include "core/traits/conditional.hpp"
 using core::conditional;
 
 TEST_CASE("conditional") {
@@ -92,7 +92,7 @@ TEST_CASE("conditional") {
     ENSURE_SAME(conditional<true, class1, class2>, class1);
 }
 
-#include "core/nostd/traits/decay.hpp"
+#include "core/traits/decay.hpp"
 using core::decay;
 
 TEST_CASE("decay") {
@@ -113,7 +113,7 @@ TEST_CASE("decay") {
     ENSURE_SAME(decay<int(&)[3][4]>, int(*)[4]);
 }
 
-#include "core/nostd/traits/declval.hpp"
+#include "core/traits/declval.hpp"
 using core::declval;
 
 template <typename T>
@@ -144,7 +144,7 @@ TEST_CASE("declval") {
     static_assert(!declval_ok<void() const>);
 }
 
-#include "core/nostd/traits/idx_of_type.hpp"
+#include "core/traits/idx_of_type.hpp"
 using core::idx_of_type;
 using core::idx_of_type_pack;
 
@@ -161,7 +161,7 @@ TEST_CASE("idx_of_type") {
     static_assert(idx_of_type_pack<float, test1<int, void, float>> == 2);
 }
 
-#include "core/nostd/traits/is_array.hpp"
+#include "core/traits/is_array.hpp"
 using core::is_array;
 using core::is_bounded_array;
 
@@ -183,7 +183,7 @@ TEST_CASE("is_array") {
     static_assert(!is_bounded_array<int[]>);
 }
 
-#include "core/nostd/traits/is_const.hpp"
+#include "core/traits/is_const.hpp"
 using core::is_const;
 
 TEST_CASE("is_const") {
@@ -198,7 +198,7 @@ TEST_CASE("is_const") {
     static_assert(!is_const<std::add_const_t<void()>>);
 }
 
-#include "core/nostd/traits/is_destructible.hpp"
+#include "core/traits/is_destructible.hpp"
 using core::is_destructible;
 
 TEST_CASE("is_destructible") {
@@ -226,7 +226,7 @@ TEST_CASE("is_destructible") {
     static_assert(!is_destructible<void>);
 }
 
-#include "core/nostd/traits/is_function.hpp"
+#include "core/traits/is_function.hpp"
 using core::is_function;
 
 TEST_CASE("is_function") {
@@ -253,7 +253,7 @@ TEST_CASE("is_function") {
     static_assert(!is_function<int>);
 }
 
-#include "core/nostd/traits/is_ptr.hpp"
+#include "core/traits/is_ptr.hpp"
 using core::is_ptr;
 
 TEST_CASE("is_pointer") {
@@ -278,7 +278,7 @@ TEST_CASE("is_pointer") {
     static_assert(!is_ptr<int[]>);
 }
 
-#include "core/nostd/traits/is_ref.hpp"
+#include "core/traits/is_ref.hpp"
 using core::is_ref;
 
 TEST_CASE("is_ref") {
@@ -297,7 +297,7 @@ TEST_CASE("is_ref") {
     static_assert(is_ref<int(&&)[3]>);
 }
 
-#include "core/nostd/traits/is_same.hpp"
+#include "core/traits/is_same.hpp"
 using core::is_same;
 
 TEST_CASE("is_same") {
@@ -305,7 +305,7 @@ TEST_CASE("is_same") {
     static_assert(is_same<const int&(&&)(), const int&(&&)()>);
 }
 
-#include "core/nostd/traits/remove_const.hpp"
+#include "core/traits/remove_const.hpp"
 using core::remove_const;
 
 TEST_CASE("remove_const") {
@@ -322,7 +322,7 @@ TEST_CASE("remove_const") {
     ENSURE_SAME(remove_const<const int>, int);
 }
 
-#include "core/nostd/traits/remove_cv.hpp"
+#include "core/traits/remove_cv.hpp"
 using core::remove_cv;
 
 TEST_CASE("remove_cv") {
@@ -339,7 +339,7 @@ TEST_CASE("remove_cv") {
     ENSURE_SAME(remove_cv<const volatile int>, int);
 }
 
-#include "core/nostd/traits/remove_extent.hpp"
+#include "core/traits/remove_extent.hpp"
 using core::remove_extent;
 using core::remove_all_extents;
 using core::remove_sized_extent;
@@ -375,7 +375,7 @@ TEST_CASE("remove_extent") {
     ENSURE_SAME(remove_all_sized_extents<int[]>, int[]);
 }
 
-#include "core/nostd/traits/remove_ref.hpp"
+#include "core/traits/remove_ref.hpp"
 using core::remove_ref;
 using core::remove_const_ref;
 
@@ -405,7 +405,7 @@ TEST_CASE("remove_ref") {
     ENSURE_SAME(std::remove_const_t<std::remove_reference_t<int const* const&>>, const int*);
 }
 
-#include "core/nostd/traits/type_at_idx.hpp"
+#include "core/traits/type_at_idx.hpp"
 using core::type_at_idx;
 using core::type_at_idx_pack;
 
@@ -424,7 +424,7 @@ TEST_CASE("type_at_idx") {
     ENSURE_SAME(type_at_idx<3, int, float, void, void>, void);
 }
 
-#include "core/nostd/traits/make_signed.hpp"
+#include "core/traits/make_signed.hpp"
 using core::make_signed;
 
 TEST_CASE("make_signed") {
@@ -434,9 +434,9 @@ TEST_CASE("make_signed") {
     ENSURE_SAME(make_signed<core::u64>, core::i64);
 }
 
-#include "core/nostd/traits/add_const.hpp"
-#include "core/nostd/traits/add_volatile.hpp"
-#include "core/nostd/traits/add_cv.hpp"
+#include "core/traits/add_const.hpp"
+#include "core/traits/add_volatile.hpp"
+#include "core/traits/add_cv.hpp"
 using core::add_const;
 using core::add_volatile;
 using core::add_cv;

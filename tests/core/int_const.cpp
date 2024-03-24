@@ -1,13 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "core/nostd/int_const.hpp"
+#include "core/int_const.hpp"
 using namespace core::int_const_literals;
 using core::int_const;
 using core::int_c;
 using core::false_c;
 using core::true_c;
 
-#include "core/nostd/traits/is_same.hpp"
+#include "core/traits/is_same.hpp"
 using core::is_same;
 
 TEST_CASE("int_const") {
