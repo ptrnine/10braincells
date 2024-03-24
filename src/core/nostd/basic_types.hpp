@@ -29,4 +29,7 @@ using f32 = float;
 using f64 = double;
 
 enum class byte : u8 {};
+
+struct none_t {};
+static inline constexpr none_t none{};
 } // namespace core
