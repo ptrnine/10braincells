@@ -905,6 +905,39 @@ struct var : dtls::var_impl<Ts...> {
     }
 #endif
 };
+
+/* Visit */
+
+namespace dtls {
+constexpr decltype(auto) _visit(auto&& function, auto&& var) {
+    return idx_dispatch<decltype(auto(var))::size()>(var.index(), [&](auto i) {
+        return fwd(function)(fwd(var)._get(i));
+    });
+}
+
+constexpr decltype(auto) _visit(auto&& function, auto&& var1, auto&& var2, auto&&... vars) {
+    return idx_dispatch<decltype(auto(var1))::size()>(var1.index(), [&](auto i1) {
+        return _visit(
+            [&](auto&&... a) {
+                return fwd(function)(fwd(var1)._get(i1), fwd(a)...);
+            },
+            fwd(var2),
+            fwd(vars)...);
+    });
+}
+
+template <typename F, typename... Ts>
+struct _visit_caller {
+    constexpr _visit_caller(type_list_t<F, Ts...>) {}
+    constexpr decltype(auto) operator()(Ts... var, F function) const {
+        return _visit(fwd(function), fwd(var)...);
+    }
+};
+} // namespace dtls
+
+constexpr decltype(auto) visit(auto&&... args) {
+    return dtls::_visit_caller{type_list<decltype(args)...>.rotate_r()}(fwd(args)...);
+}
 } // namespace core
 
 #undef fwd
