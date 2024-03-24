@@ -5,6 +5,7 @@ add_executable(tests-nostd
     traits.cpp
     tuple.cpp
     utility.cpp
+    var.cpp
 )
 
 target_compile_options(tests-nostd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
