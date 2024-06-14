@@ -1,13 +1,15 @@
 #pragma once
 
-#include "../traits/is_same.hpp"
+#include <core/traits/is_same.hpp>
 
 namespace core {
 template <typename T>
 struct type_t {
     using type = T;
 
-    constexpr type operator+() const noexcept;
+    static constexpr type_t operator()() {
+        return {};
+    }
 
     template <typename U>
     constexpr auto operator==(type_t<U>) const {
@@ -27,4 +29,7 @@ template <typename T>
 constexpr auto type_of(const T&) {
     return type<T>;
 }
+
+template <auto t>
+using decl_type = typename decltype(t)::type;
 } // namespace core

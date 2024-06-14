@@ -35,12 +35,12 @@ namespace dtls {
 
     template <template <typename...> typename Pack, size_t I, typename... Ts>
     struct _type_at_idx_pack<Pack<Ts...>, I> {
-        using type = decltype(+get<I>(make_idx_type_indexer<Ts...>(make_idx_seq<sizeof...(Ts)>())));
+        using type = decl_type<get<I>(make_idx_type_indexer<Ts...>(make_idx_seq<sizeof...(Ts)>()))()>;
     };
 
     template <size_t I, typename... Ts>
     struct _type_at_idx {
-        using type = decltype(+get<I>(make_idx_type_indexer<Ts...>(make_idx_seq<sizeof...(Ts)>())));
+        using type = decl_type<get<I>(make_idx_type_indexer<Ts...>(make_idx_seq<sizeof...(Ts)>()))()>;
     };
 #endif
 } // namespace dtls

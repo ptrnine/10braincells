@@ -88,7 +88,7 @@ struct type_list_t {
     }
 
     constexpr auto map(auto&& handler) const {
-        return type_list_t<decltype(+handler(type<Ts>))...>{};
+        return type_list_t<decl_type<handler(type<Ts>)()>...>{};
     }
 
     template <typename T, typename H>

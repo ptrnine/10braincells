@@ -774,8 +774,8 @@ struct var : dtls::var_impl<Ts...> {
 
     template <typename T, typename O = decltype(overloaded{resolve_overload<Ts>()...})>
         requires (!base_of<var_base, remove_const_ref<T>>)
-    constexpr var(T&& value) noexcept(nothrow_ctor<decltype(+O{}(value)), T&&>):
-        var_impl(size_c<idx_of_type_pack<decltype(+O{}(value)), var_base>>, fwd(value)) {}
+    constexpr var(T&& value) noexcept(nothrow_ctor<typename decltype(O{}(value))::type, T&&>):
+        var_impl(size_c<idx_of_type_pack<typename decltype(O{}(value))::type, var_base>>, fwd(value)) {}
 
     template <typename T>
     constexpr explicit var(type_t<T>, auto&&... args) noexcept(nothrow_ctor<T, decltype(args)...>):
@@ -783,8 +783,8 @@ struct var : dtls::var_impl<Ts...> {
 
     template <typename T, typename O = decltype(overloaded{resolve_overload<Ts>()...})>
         requires (!base_of<var_base, remove_ref<T>>)
-    constexpr var& operator=(T&& value) noexcept(nothrow_ctor<decltype(+O{}(value)), T&&>) {
-        var_base::_emplace(size_c<idx_of_type_pack<decltype(+O{}(value)), var_base>>, fwd(value));
+    constexpr var& operator=(T&& value) noexcept(nothrow_ctor<typename decltype(O{}(value))::type, T&&>) {
+        var_base::_emplace(size_c<idx_of_type_pack<typename decltype(O{}(value))::type, var_base>>, fwd(value));
         return *this;
     }
 
