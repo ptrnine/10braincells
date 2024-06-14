@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/basic_types.hpp>
 #include <core/concepts/assign.hpp>
 #include <core/concepts/ctor.hpp>
 #include <core/concepts/inheritance.hpp>
@@ -9,10 +10,13 @@
 #include <core/concepts/trivial_assign.hpp>
 #include <core/concepts/trivial_ctor.hpp>
 #include <core/concepts/trivial_dtor.hpp>
+#include <core/exception.hpp>
 #include <core/meta/init.hpp>
-#include <core/traits/is_ref.hpp>
-#include <core/traits/remove_ref.hpp>
 #include <core/null.hpp>
+#include <core/traits/is_ref.hpp>
+#include <core/traits/remove_cv.hpp>
+#include <core/traits/remove_ref.hpp>
+#include <core/utility/move.hpp>
 
 #define fwd(what) static_cast<decltype(what)>(what)
 
@@ -25,15 +29,19 @@ namespace details
 } // namespace details
 
 template <typename T>
-concept optional = derived_from<details::opt_base, T>;
+concept optional = derived_from<T, details::opt_base>;
+
+template <typename T>
+concept cref_optional = derived_from<remove_const_ref<T>, details::opt_base>;
 
 namespace details
 {
-    template <typename T>
-    struct opt_holder_base;
+    template <typename>
+    class opt_holder_base;
 
     template <trivial_dtor T>
-    struct opt_holder_base<T> : opt_base {
+    class opt_holder_base<T> : public opt_base {
+    public:
         constexpr opt_holder_base() noexcept: _dummy() {}
 
         template <typename... Ts>
@@ -43,6 +51,7 @@ namespace details
             _has_value = false;
         }
 
+    protected:
         union {
             char _dummy;
             T    _value;
@@ -51,7 +60,8 @@ namespace details
     };
 
     template <typename T> requires (!trivial_dtor<T>)
-    struct opt_holder_base<T> : opt_base {
+    class opt_holder_base<T> : public opt_base {
+    public:
         constexpr opt_holder_base() noexcept: _dummy() {}
 
         template <typename... Ts>
@@ -69,6 +79,7 @@ namespace details
             }
         }
 
+    protected:
         union {
             char _dummy;
             T    _value;
@@ -77,12 +88,14 @@ namespace details
     };
 
     template <typename T>
-    struct opt_holder;
+    class opt_holder;
 
     template <typename T> requires (!is_ref<T>)
-    struct opt_holder<T> : opt_holder_base<T> {
+    class opt_holder<T> : public opt_holder_base<T> {
+    public:
         using opt_holder_base<T>::opt_holder_base;
 
+    protected:
         template <typename... Ts>
         constexpr void init(Ts&&... args) {
             ::new(static_cast<void*>(&this->_value)) T(fwd(args)...);
@@ -113,25 +126,27 @@ namespace details
 
         }
 
-        constexpr decltype(auto) get() & noexcept {
+    public:
+        constexpr T& get() & noexcept {
             return this->_value;
         }
 
-        constexpr decltype(auto) get() const& noexcept {
+        constexpr const T& get() const& noexcept {
             return this->_value;
         }
 
-        constexpr decltype(auto) get() && noexcept {
+        constexpr T&& get() && noexcept {
             return mov(this->_value);
         }
 
-        constexpr decltype(auto) get() const&& noexcept {
+        constexpr const T&& get() const&& noexcept {
             return mov(this->_value);
         }
     };
 
     template <typename D, typename>
-    struct opt_cctor : D {
+    class opt_cctor : public D {
+    public:
         using D::D;
         constexpr opt_cctor() noexcept                   = default;
         constexpr opt_cctor(const opt_cctor&)            = delete;
@@ -141,7 +156,8 @@ namespace details
     };
 
     template <typename D, trivial_copy_ctor T>
-    struct opt_cctor<D, T> : D {
+    class opt_cctor<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_cctor() noexcept                                         = default;
         constexpr opt_cctor(const opt_cctor& r) noexcept(nothrow_copy_ctor<T>) = default;
@@ -151,7 +167,8 @@ namespace details
     };
 
     template <typename D, copy_ctor T> requires(!trivial_copy_ctor<T>)
-    struct opt_cctor<D, T> : D {
+    class opt_cctor<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_cctor() noexcept = default;
         constexpr opt_cctor(const opt_cctor& r) noexcept(nothrow_copy_ctor<T>): D() {
@@ -163,7 +180,8 @@ namespace details
     };
 
     template <typename D, typename>
-    struct opt_casgn : D {
+    class opt_casgn : public D {
+    public:
         using D::D;
         constexpr opt_casgn() noexcept                   = default;
         constexpr opt_casgn(const opt_casgn&)            = default;
@@ -173,7 +191,8 @@ namespace details
     };
 
     template <typename D, trivial_copy_assign T>
-    struct opt_casgn<D, T> : D {
+    class opt_casgn<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_casgn() noexcept                                                      = default;
         constexpr opt_casgn(const opt_casgn&)                                               = default;
@@ -183,7 +202,8 @@ namespace details
     };
 
     template <typename D, copy_assign T> requires(!trivial_copy_assign<T>)
-    struct opt_casgn<D, T> : D {
+    class opt_casgn<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_casgn() noexcept        = default;
         constexpr opt_casgn(const opt_casgn&) = default;
@@ -196,7 +216,8 @@ namespace details
     };
 
     template <typename D, typename>
-    struct opt_mctor : D {
+    class opt_mctor : public D {
+    public:
         using D::D;
         constexpr opt_mctor() noexcept                   = default;
         constexpr opt_mctor(const opt_mctor&)            = default;
@@ -206,7 +227,8 @@ namespace details
     };
 
     template <typename D, trivial_move_ctor T>
-    struct opt_mctor<D, T> : D {
+    class opt_mctor<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_mctor() noexcept                                    = default;
         constexpr opt_mctor(const opt_mctor&)                             = default;
@@ -216,7 +238,8 @@ namespace details
     };
 
     template <typename D, move_ctor T> requires(!trivial_move_ctor<T>)
-    struct opt_mctor<D, T> : D {
+    class opt_mctor<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_mctor() noexcept                   = default;
         constexpr opt_mctor(const opt_mctor&)            = default;
@@ -228,7 +251,8 @@ namespace details
     };
 
     template <typename D, typename>
-    struct opt_masgn : D {
+    class opt_masgn : public D {
+    public:
         using D::D;
         constexpr opt_masgn() noexcept                   = default;
         constexpr opt_masgn(const opt_masgn&)            = default;
@@ -238,7 +262,8 @@ namespace details
     };
 
     template <typename D, trivial_move_assign T>
-    struct opt_masgn<D, T> : D {
+    class opt_masgn<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_masgn() noexcept                                                 = default;
         constexpr opt_masgn(const opt_masgn&)                                          = default;
@@ -248,7 +273,8 @@ namespace details
     };
 
     template <typename D, move_assign T> requires(!trivial_move_assign<T>)
-    struct opt_masgn<D, T> : D {
+    class opt_masgn<D, T> : public D {
+    public:
         using D::D;
         constexpr opt_masgn() noexcept                   = default;
         constexpr opt_masgn(const opt_masgn&)            = default;
@@ -271,38 +297,291 @@ namespace details
 
     template <typename T>
     using opt_impl = opt_masgn<opt_impl2<T>, T>;
+
+    struct opt_iterator_sentinel {};
+
+    template <typename T>
+    class opt_iterator {
+    public:
+        opt_iterator() = default;
+        opt_iterator(T& value) noexcept: val(&value) {}
+
+        constexpr T& operator*() noexcept {
+            return *val;
+        }
+
+        constexpr const T& operator*() const noexcept {
+            return *val;
+        }
+
+        constexpr T* operator->() noexcept {
+            return val;
+        }
+
+        constexpr const T* operator->() const noexcept {
+            return val;
+        }
+
+        constexpr bool operator==(opt_iterator_sentinel) const noexcept {
+            return !val;
+        }
+
+        constexpr bool operator!=(opt_iterator_sentinel) const noexcept {
+            return val;
+        }
+
+        opt_iterator& operator++() {
+            val = nullptr;
+            return *this;
+        }
+
+    private:
+        T* val = nullptr;
+    };
 } // namespace details
 
-template <typename T> requires (!(same_as<T, null_t> || same_as<T, decltype(nullptr)> || same_as<T, init_t>))
-class opt : details::opt_impl<T> {
+class bad_opt_access : public exception {
+public:
+    bad_opt_access() = default;
+    const char* what() const noexcept override {
+        return "Bad optional access";
+    }
+};
+
+template <typename T>
+    requires(!(same_as<remove_const<T>, null_t> || same_as<remove_const<T>, decltype(nullptr)> ||
+               same_as<remove_const<T>, init_t>))
+class opt : public details::opt_impl<T> {
 public:
     using base = details::opt_impl<T>;
+    using base::base;
 
     constexpr opt() noexcept = default;
-    constexpr opt(const opt&) = default;
-    constexpr opt(opt&&) = default;
+    constexpr opt(const opt&) requires copy_ctor<T> = default;
+    constexpr opt(opt&&) noexcept requires move_ctor<T> = default;
     constexpr opt(null_t) noexcept {}
+    constexpr opt(decltype(nullptr)) noexcept {}
 
     template <typename... Ts>
     constexpr opt(init_t, Ts&&... args): base(init, fwd(args)...) {}
 
-    template <typename U> requires convertible_to<U, T> && ctor<T, U>
+    template <typename U> requires convertible_to<U, T> && ctor<T, U> && (!optional<remove_const_ref<U>>)
     constexpr opt(U&& val): base(init, fwd(val)) {}
 
-    template <typename U> requires (!convertible_to<U, T>) && ctor<T, U>
+    template <typename U> requires (!convertible_to<U, T>) && ctor<T, U> && (!optional<remove_const_ref<U>>)
     explicit constexpr opt(U&& val): base(init, fwd(val)) {}
 
-    constexpr opt& operator=(const opt&) = default;
-    constexpr opt& operator=(opt&&) = default;
+    constexpr opt& operator=(const opt&) requires copy_assign<T> = default;
+    constexpr opt& operator=(opt&&) noexcept requires move_assign<T> = default;
     constexpr opt& operator=(null_t) noexcept {
         this->reset();
         return *this;
+    }
+    constexpr opt& operator=(decltype(nullptr)) noexcept {
+        this->reset();
+        return *this;
+    }
+
+    template <typename U> requires ctor<T, U> && (!optional<remove_const_ref<U>>)
+    constexpr opt& operator=(U&& val) {
+        if (has_value())
+            this->get() = fwd(val);
+        else
+            this->init(fwd(val));
+        return* this;
+    }
+
+    constexpr T* operator->() {
+        return &this->get();
+    }
+
+    constexpr const T* operator->() const {
+        return &this->get();
+    }
+
+    constexpr T& operator*() & {
+        return this->get();
+    }
+
+    constexpr const T& operator*() const& {
+        return this->get();
+    }
+
+    constexpr T&& operator*() && {
+        return mov(this->get());
+    }
+
+    constexpr const T&& operator*() const&& {
+        return mov(this->get());
     }
 
     constexpr bool has_value() const noexcept {
         return this->_has_value;
     }
+
+    constexpr bool empty() const noexcept {
+        return !this->_has_value;
+    }
+
+    constexpr size_t size() const noexcept {
+        return has_value() ? 1 : 0;
+    }
+
+    constexpr explicit operator bool() const noexcept {
+        return has_value();
+    }
+
+    constexpr T& value() & {
+        if (empty())
+            throw bad_opt_access{};
+        return this->get();
+    }
+
+    constexpr const T& value() const& {
+        if (empty())
+            throw bad_opt_access{};
+        return this->get();
+    }
+
+    constexpr T&& value() && {
+        if (empty())
+            throw bad_opt_access{};
+        return mov(this->get());
+    }
+
+    constexpr const T&& value() const&& {
+        if (empty())
+            throw bad_opt_access{};
+        return mov(this->get());
+    }
+
+    template <typename U> requires copy_ctor<T> && convertible_to<U&&, T>
+    constexpr T value_or(U&& default_value) const& {
+        if (has_value())
+            return this->get();
+        else
+           return static_cast<T>(fwd(default_value));
+    }
+
+    template <typename U> requires move_ctor<T> && convertible_to<U&&, T>
+    constexpr T value_or(U&& default_value) && {
+        if (has_value())
+            return mov(this->get());
+        else
+            return static_cast<T>(fwd(default_value));
+    }
+
+    constexpr auto and_then(auto&& f) & requires requires { {fwd(f)(this->get())} -> cref_optional; } {
+        if (has_value())
+            return fwd(f)(this->get());
+        else
+            return remove_const_ref<decltype(fwd(f)(this->get()))>{};
+    }
+
+    constexpr auto and_then(auto&& f) && requires requires { {fwd(f)(mov(this->get()))} -> cref_optional; } {
+        if (has_value())
+            return fwd(f)(mov(this->get()));
+        else
+            return remove_const_ref<decltype(fwd(f)(mov(this->get())))>{};
+    }
+
+    constexpr auto and_then(auto&& f) const& requires requires { {fwd(f)(this->get())} -> cref_optional; } {
+        if (has_value())
+            return fwd(f)(this->get());
+        else
+            return remove_const_ref<decltype(fwd(f)(this->get()))>{};
+    }
+
+    constexpr auto and_then(auto&& f) const&& requires requires { {fwd(f)(mov(this->get()))} -> cref_optional; } {
+        if (has_value())
+            return fwd(f)(mov(this->get()));
+        else
+            return remove_const_ref<decltype(fwd(f)(mov(this->get())))>{};
+    }
+
+    constexpr opt or_else(auto&& f) const& requires requires { {fwd(f)()} -> cref_optional; } {
+        if (has_value())
+            return *this;
+        else
+            return fwd(f)();
+    }
+
+    constexpr opt or_else(auto&& f) && requires requires { {fwd(f)()} -> cref_optional; } {
+        if (has_value())
+            return mov(*this);
+        else
+            return fwd(f)();
+    }
+
+    constexpr auto map(auto&& f) & {
+        if (has_value())
+            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{fwd(f)(this->get())};
+        else
+            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{};
+    }
+
+    constexpr auto map(auto&& f) const& {
+        if (has_value())
+            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{fwd(f)(this->get())};
+        else
+            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{};
+    }
+
+    constexpr auto map(auto&& f) && {
+        if (has_value())
+            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{fwd(f)(mov(this->get()))};
+        else
+            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{};
+    }
+
+    constexpr auto map(auto&& f) const&& {
+        if (has_value())
+            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{fwd(f)(mov(this->get()))};
+        else
+            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{};
+    }
+
+    constexpr auto transform(auto&& f) & {
+        return this->map(fwd(f));
+    }
+
+    constexpr auto transform(auto&& f) const& {
+        return this->map(fwd(f));
+    }
+
+    constexpr auto transform(auto&& f) && {
+        return this->map(fwd(f));
+    }
+
+    constexpr auto transform(auto&& f) const&& {
+        return this->map(fwd(f));
+    }
+
+    constexpr details::opt_iterator<T> begin() {
+        if (has_value())
+            return {this->get()};
+        else
+            return {};
+    }
+
+    constexpr details::opt_iterator<const T> begin() const {
+        if (has_value())
+            return {this->get()};
+        else
+            return {};
+    }
+
+    constexpr details::opt_iterator_sentinel end() {
+        return {};
+    }
+
+    constexpr details::opt_iterator_sentinel end() const {
+        return {};
+    }
 };
+
+template <typename T>
+opt(T) -> opt<T>;
 } // namespace core
 
 #undef fwd
