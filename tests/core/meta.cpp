@@ -22,6 +22,7 @@ TEST_CASE("nttp") {
 using core::type;
 using core::type_of;
 using core::is_same;
+using core::decl_type;
 
 TEST_CASE("type") {
     auto t1 = type<int>;
@@ -30,7 +31,12 @@ TEST_CASE("type") {
     auto t2 = type_of(value);
 
     static_assert(t1 == t2);
-    static_assert(is_same<decltype(+t1), decltype(t2)::type>);
+    static_assert(is_same<decl_type<t1()>, decl_type<t2()>>);
+    static_assert(is_same<decl_type<t1()>, int>);
+
+    /* Array type */
+    auto t3 = type<int[]>;
+    static_assert(t3 == type<int[]>);
 }
 
 #include "core/meta/type_list.hpp"
@@ -105,7 +111,7 @@ TEST_CASE("type_list") {
 
     SECTION("map") {
         static_assert(type_list<int, char>.map([](auto t) {
-            return type<std::vector<decltype(+t)>>;
+            return type<std::vector<decl_type<t()>>>;
         }) == type_list<std::vector<int>, std::vector<char>>);
     }
 

@@ -6,6 +6,7 @@ add_executable(tests-core
     tuple.cpp
     utility.cpp
     var.cpp
+    opt.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
