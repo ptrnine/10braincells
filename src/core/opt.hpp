@@ -391,28 +391,12 @@ public:
         return* this;
     }
 
-    constexpr T* operator->() {
-        return &this->get();
+    constexpr auto operator->(this auto&& it) {
+        return &fwd(it).get();
     }
 
-    constexpr const T* operator->() const {
-        return &this->get();
-    }
-
-    constexpr T& operator*() & {
-        return this->get();
-    }
-
-    constexpr const T& operator*() const& {
-        return this->get();
-    }
-
-    constexpr T&& operator*() && {
-        return mov(this->get());
-    }
-
-    constexpr const T&& operator*() const&& {
-        return mov(this->get());
+    constexpr auto&& operator*(this auto&& it) {
+        return fwd(it).get();
     }
 
     constexpr bool has_value() const noexcept {
@@ -431,28 +415,10 @@ public:
         return has_value();
     }
 
-    constexpr T& value() & {
-        if (empty())
+    constexpr auto&& value(this auto&& it) {
+        if (it.empty())
             throw bad_opt_access{};
-        return this->get();
-    }
-
-    constexpr const T& value() const& {
-        if (empty())
-            throw bad_opt_access{};
-        return this->get();
-    }
-
-    constexpr T&& value() && {
-        if (empty())
-            throw bad_opt_access{};
-        return mov(this->get());
-    }
-
-    constexpr const T&& value() const&& {
-        if (empty())
-            throw bad_opt_access{};
-        return mov(this->get());
+        return fwd(it).get();
     }
 
     template <typename U> requires copy_ctor<T> && convertible_to<U&&, T>
@@ -471,90 +437,30 @@ public:
             return static_cast<T>(fwd(default_value));
     }
 
-    constexpr auto and_then(auto&& f) & requires requires { {fwd(f)(this->get())} -> cref_optional; } {
-        if (has_value())
-            return fwd(f)(this->get());
+    constexpr auto and_then(this auto&& it, auto&& f) requires requires { {fwd(f)(fwd(it).get())} -> cref_optional; } {
+        if (it.has_value())
+            return fwd(f)(fwd(it).get());
         else
-            return remove_const_ref<decltype(fwd(f)(this->get()))>{};
+            return remove_const_ref<decltype(fwd(f)(fwd(it).get()))>{};
     }
 
-    constexpr auto and_then(auto&& f) && requires requires { {fwd(f)(mov(this->get()))} -> cref_optional; } {
-        if (has_value())
-            return fwd(f)(mov(this->get()));
-        else
-            return remove_const_ref<decltype(fwd(f)(mov(this->get())))>{};
-    }
-
-    constexpr auto and_then(auto&& f) const& requires requires { {fwd(f)(this->get())} -> cref_optional; } {
-        if (has_value())
-            return fwd(f)(this->get());
-        else
-            return remove_const_ref<decltype(fwd(f)(this->get()))>{};
-    }
-
-    constexpr auto and_then(auto&& f) const&& requires requires { {fwd(f)(mov(this->get()))} -> cref_optional; } {
-        if (has_value())
-            return fwd(f)(mov(this->get()));
-        else
-            return remove_const_ref<decltype(fwd(f)(mov(this->get())))>{};
-    }
-
-    constexpr opt or_else(auto&& f) const& requires requires { {fwd(f)()} -> cref_optional; } {
-        if (has_value())
-            return *this;
+    constexpr opt or_else(this auto&& it, auto&& f) requires requires { {fwd(f)()} -> cref_optional; } {
+        if (it.has_value())
+            return fwd(it);
         else
             return fwd(f)();
     }
 
-    constexpr opt or_else(auto&& f) && requires requires { {fwd(f)()} -> cref_optional; } {
-        if (has_value())
-            return mov(*this);
+    constexpr auto map(this auto&& it, auto&& f) {
+        using Nested = remove_cv<decltype(fwd(f)(fwd(it).get()))>;
+        if (it.has_value())
+            return opt<Nested>{fwd(f)(fwd(it).get())};
         else
-            return fwd(f)();
+            return opt<Nested>{};
     }
 
-    constexpr auto map(auto&& f) & {
-        if (has_value())
-            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{fwd(f)(this->get())};
-        else
-            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{};
-    }
-
-    constexpr auto map(auto&& f) const& {
-        if (has_value())
-            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{fwd(f)(this->get())};
-        else
-            return opt<remove_cv<decltype(fwd(f)(this->get()))>>{};
-    }
-
-    constexpr auto map(auto&& f) && {
-        if (has_value())
-            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{fwd(f)(mov(this->get()))};
-        else
-            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{};
-    }
-
-    constexpr auto map(auto&& f) const&& {
-        if (has_value())
-            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{fwd(f)(mov(this->get()))};
-        else
-            return opt<remove_cv<decltype(fwd(f)(mov(this->get())))>>{};
-    }
-
-    constexpr auto transform(auto&& f) & {
-        return this->map(fwd(f));
-    }
-
-    constexpr auto transform(auto&& f) const& {
-        return this->map(fwd(f));
-    }
-
-    constexpr auto transform(auto&& f) && {
-        return this->map(fwd(f));
-    }
-
-    constexpr auto transform(auto&& f) const&& {
-        return this->map(fwd(f));
+    constexpr auto transform(this auto&& it, auto&& f) {
+        return fwd(it).map(fwd(f));
     }
 
     constexpr details::opt_iterator<T> begin() {
