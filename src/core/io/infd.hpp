@@ -52,23 +52,17 @@ public:
     template <typename DerivedT2, typename Impl2, typename TT, size_t SS, auto... SSettings>
     friend class infd_base_t;
 
-    using fd_type = decltype(Impl::impl_open("", fd_flag{}, file_permissions{}));
+    using fd_type = decltype(Impl::impl_open("", sys::openflags{}, sys::file_perms{}));
 
     static constexpr bool exception_on_seek_fail = details::check_enable<fd_exception_on_seek_fail>(Settings...);
     static constexpr bool exception_on_read_fail = details::check_enable<fd_exception_on_read_fail>(Settings...);
 
-    constexpr static DerivedT raw_create(fd_type fd) {
-        DerivedT infd;
-        infd.fd = fd;
-        return infd;
-    }
+    infd_base_t(fd_type ifd = Impl::invalid_fd()): fd(ifd) {}
 
-    infd_base_t() = default;
+    infd_base_t(const char* filename, sys::openflags flags = sys::openflag::read_only):
+        fd(Impl::impl_open(filename, flags, sys::file_perms::none)) {}
 
-    infd_base_t(const char* filename, fd_combined_flag flags = fd_flag::read_only):
-        fd(Impl::impl_open(filename, flags, file_permissions{})) {}
-
-    infd_base_t(const std::string& filename, fd_combined_flag flags = fd_flag::read_only):
+    infd_base_t(const std::string& filename, sys::openflags flags = sys::openflag::read_only):
         infd_base_t(filename.data(), flags) {}
 
     infd_base_t(const infd_base_t&) = delete;
@@ -82,14 +76,14 @@ public:
         can_blocked(ifd.can_blocked),
         stat_executed(ifd.stat_executed) {
         std::memcpy(buf + ifd.pos, ifd.buf + ifd.pos, ifd.size * sizeof(T));
-        ifd.fd = -1;
+        ifd.fd = Impl::invalid_fd();
     }
 
     infd_base_t& operator=(infd_base_t&& ifd) noexcept {
         if (this == &ifd)
             return *this;
 
-        if (fd >= 0)
+        if (fd != Impl::invalid_fd())
             Impl::impl_close(fd);
 
         fd = ifd.fd;
@@ -100,13 +94,13 @@ public:
         stat_executed = ifd.stat_executed;
 
         std::memcpy(buf + ifd.pos, ifd.buf + ifd.pos, ifd.size * sizeof(T));
-        ifd.fd = -1;
+        ifd.fd = Impl::invalid_fd();
 
         return *this;
     }
 
     ~infd_base_t() {
-        if (fd >= 0)
+        if (fd != Impl::invalid_fd())
             Impl::impl_close(fd);
     }
 
@@ -265,7 +259,7 @@ public:
     }
 
 private:
-    fd_type                   fd   = Impl::default_infd();
+    fd_type                   fd;
     size_t                    size = 0;
     size_t                    pos  = 0;
     T                         buf[S];

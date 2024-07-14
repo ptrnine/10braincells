@@ -3,6 +3,9 @@
 #include "int_parse.hpp"
 #include "limits.hpp"
 
+#include <core/traits/is_enum.hpp>
+#include <core/traits/underlying_type.hpp>
+
 namespace core {
 #define BINOP(OP)                                                                                                      \
     template <auto c2>                                                                                                 \
@@ -30,6 +33,10 @@ struct int_const {
 
     constexpr operator auto() const {
         return c;
+    }
+
+    constexpr int_const to_int() const {
+        return {};
     }
 
     BINOP(+)
@@ -61,11 +68,32 @@ struct int_const {
 #undef BINOP
 #undef UNOP
 
+template <auto c> requires is_enum<decltype(c)>
+struct int_const<c> {
+    using type = decltype(c);
+    static constexpr auto value = c;
+
+    constexpr operator auto() const {
+        return c;
+    }
+
+    constexpr auto to_int() const {
+        return int_c<underlying_type<decltype(c)>(c)>;
+    }
+};
+
 using true_t = int_const<true>;
 using false_t = int_const<false>;
 
 static constexpr inline auto true_c  = int_c<true>;
 static constexpr inline auto false_c = int_c<false>;
+
+template <auto... Vs>
+struct intset : int_const<Vs>... {
+    constexpr intset() = default;
+    template <auto V> requires (bool(int_c<V> == int_c<Vs>) || ...)
+    constexpr intset(int_const<V>) {}
+};
 
 namespace int_const_literals {
     template <char... cs>
@@ -151,4 +179,4 @@ namespace int_const_literals {
             return int_t_c<size_t, c>;
     }
 } // namespace int_const_literals
-} // namespace core
+}// namespace core

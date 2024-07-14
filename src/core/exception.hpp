@@ -1,16 +1,20 @@
 #pragma once
 
+#if 0
+#if !defined(__EXCEPTION__) && !defined(__EXCEPTION_H)
 namespace std {
 int uncaught_exceptions() noexcept __attribute__((__pure__));
 
-#if !defined(__EXCEPTION__) && !defined(__EXCEPTION_H)
 class exception /* NOLINT */ {
 public:
     virtual ~exception() noexcept;
     virtual const char* what() const noexcept;
 };
-#endif
 } // namespace std
+#endif
+#endif
+
+#include <exception>
 
 namespace core {
 inline unsigned int uncaught_exceptions() noexcept {

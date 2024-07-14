@@ -27,4 +27,7 @@ concept integral = any_of<remove_cv<T>,
 
 template <typename T>
 concept signed_integral = integral<T> && (T(-1) < 0);
+
+template <typename T>
+concept unsigned_integral = integral<T> && (T(-1) >= 0);
 }

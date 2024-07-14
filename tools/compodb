@@ -24,7 +24,7 @@ fix_compodb() {
     [ "$cpp_concepts" -lt 202003 ] && cpp_concepts=202003
 
     # Replace -std=gnu++23 because clangd cannot recognize that
-    sed -i "s/-std=gnu++23/-std=c++2b -D__cpp_concepts=$cpp_concepts/g" ./compile_commands.json
+    sed -i "s/-std=gnu++23/-std=c++23 -D__cpp_concepts=$cpp_concepts/g" ./compile_commands.json
 
     # Remove gcc specific flags
     sed -i "s/-fconcepts-diagnostics-depth=100 //g" ./compile_commands.json

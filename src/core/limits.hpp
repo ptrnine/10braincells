@@ -19,11 +19,13 @@ namespace details {
 
     template <typename T>
     struct minmax_default {
+        static inline constexpr int digits = details::digits<T>;
+
         static inline constexpr T min() {
-            return signed_integral<T> ? T(1) << digits<T> : T(0);
+            return signed_integral<T> ? T(1) << digits : T(0);
         }
         static inline constexpr T max() {
-            return signed_integral<T> ? T((((T(1) << (digits<T> - 1)) - 1) << 1) + 1) : ~T(0);
+            return signed_integral<T> ? T((((T(1) << (digits - 1)) - 1) << 1) + 1) : ~T(0);
         }
     };
 } // namespace details

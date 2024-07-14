@@ -96,7 +96,8 @@ private:
 
 class log_handler_fd : public log_handler_base {
 public:
-    log_handler_fd(core::outfd<char> o): ofd(std::move(o)), is_fifo(ofd.is_fifo()), is_tty(isatty(ofd.descriptor())) {}
+    /* TODO: replace isatty */
+    log_handler_fd(core::outfd<char> o): ofd(std::move(o)), is_fifo(ofd.is_fifo()), is_tty(isatty((int)ofd.descriptor())) {}
 
     static std::unique_ptr<log_handler_fd> create(core::outfd<char> ofd) {
         return std::make_unique<log_handler_fd>(std::move(ofd));
@@ -387,7 +388,7 @@ public:
     }
 
     ~logger() {
-        info("******* log close (active handlers: {}) *******\n", handler_names());
+        info("******* log close {} *******\n", handler_names());
     }
 
     void add_handler(const std::string& name, std::unique_ptr<log_handler_base> log_handler) {
@@ -445,6 +446,9 @@ public:
 
     template <typename... Ts>
     void log_to_handler(const std::string& handler_name, log_level level, std::string_view format_str, Ts&&... args) {
+        if (!check_level(level))
+            return;
+
         auto msg  = util::format(format_str, std::forward<Ts>(args)...);
         auto hash = core::fnv1a64(msg.data(), msg.size());
         auto time = current_datetime(log_time_format);
@@ -457,6 +461,9 @@ public:
 
     template <typename... Ts>
     void log(log_level level, std::string_view format_str, Ts&&... args) {
+        if (!check_level(level))
+            return;
+
         auto msg  = util::format(format_str, std::forward<Ts>(args)...);
         auto hash = core::fnv1a64(msg.data(), msg.size());
         auto time = current_datetime(log_time_format);
@@ -467,11 +474,22 @@ public:
 
     template <typename... Ts>
     void log_update(log_level level, u16 update_id, std::string_view format_str, Ts&&... args) {
+        if (!check_level(level))
+            return;
+
         auto msg  = util::format(format_str, std::forward<Ts>(args)...);
         auto time = current_datetime(log_time_format);
 
         std::shared_lock lock{mtx};
         for (auto& [_, handler] : handlers) handler->write_update(update_id, level, time, msg);
+    }
+
+    void set_level(log_level value) {
+        level = value;
+    }
+
+    log_level get_level() const {
+        return level;
     }
 
 #define def_log_func(level)                                                                                            \
@@ -492,8 +510,13 @@ public:
 #undef def_log_func
 
 private:
+    bool check_level(log_level target_level) {
+        return target_level >= level;
+    }
+
     std::map<std::string, std::unique_ptr<log_handler_base>> handlers;
     mutable std::shared_mutex                                mtx;
+    log_level                                                level = log_level::debug;
 };
 
 /* Global logger */

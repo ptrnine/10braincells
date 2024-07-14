@@ -42,7 +42,7 @@ TEST_CASE("type") {
 #include "core/meta/type_list.hpp"
 using core::type_list;
 using core::type;
-using core::indexed_type;
+using core::indexed_t;
 using namespace core::int_const_literals;
 
 TEST_CASE("type_list") {
@@ -133,6 +133,8 @@ TEST_CASE("type_list") {
 
     SECTION("indexed") {
         static_assert(type_list<int, void, float>.indexed() ==
-                      type_list<indexed_type<0, int>, indexed_type<1, void>, indexed_type<2, float>>);
+                      type_list<indexed_t<0, int>, indexed_t<1, void>, indexed_t<2, float>>);
+        static_assert(type_list<int, void>.indexed()[0_c].index() == 0);
+        static_assert(type_list<int, void>.indexed()[1_c].type() == type<void>);
     }
 }

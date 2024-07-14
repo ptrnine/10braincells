@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16.3)
 project(tbc)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 
 option(ENABLE_TESTS "Enable tests" ON)
 option(ENABLE_ASAN "Enable address sanitizer" OFF)
@@ -28,16 +28,34 @@ endif()
 
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/3rd")
 
+# Determine arch and add suitable include path
+execute_process(COMMAND cmake/current_arch.sh "${CMAKE_C_COMPILER}"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ARCH_INTERNAL)
+set(ARCH "${ARCH_INTERNAL}" CACHE STRING "The target architecture")
+message("Target architecture: ${ARCH}")
+
 add_library(self::src INTERFACE IMPORTED)
+set(self_src_includes "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/arch/${ARCH}")
 set_target_properties(self::src PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/src"
+    INTERFACE_INCLUDE_DIRECTORIES "${self_src_includes}"
+)
+
+add_library(glm::glm INTERFACE IMPORTED)
+set_target_properties(glm::glm PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/submodules/glm"
+)
+
+add_library(stb::stb INTERFACE IMPORTED)
+set_target_properties(stb::stb PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/submodules/stb"
 )
 
 set(_cxx_flags
-    -fstrict-aliasing
+    -fno-strict-aliasing
     -Wall
     -Wextra
-    #-Wpedantic
+    -Wpedantic
     -Wcast-align
     -Wconversion
     -Wctor-dtor-privacy
@@ -77,6 +95,12 @@ foreach(_flag ${_cxx_flags})
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${_flag}>)
 endforeach()
 
+add_subdirectory(codegen)
+
 if(ENABLE_TESTS)
     add_subdirectory(tests)
 endif()
+
+# TODO: remove this later
+add_executable(test2 test2.cpp)
+target_link_libraries(test2 PRIVATE glm::glm stb::stb self::src GLEW GL glfw)

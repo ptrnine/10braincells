@@ -8,13 +8,147 @@ namespace core
 {
 using namespace std::string_view_literals;
 
+enum class error_code {
+    eperm           = EPERM,
+    enoent          = ENOENT,
+    esrch           = ESRCH,
+    eintr           = EINTR,
+    eio             = EIO,
+    enxio           = ENXIO,
+    e2big           = E2BIG,
+    enoexec         = ENOEXEC,
+    ebadf           = EBADF,
+    echild          = ECHILD,
+    eagain          = EAGAIN,
+    enomem          = ENOMEM,
+    eacces          = EACCES,
+    efault          = EFAULT,
+    enotblk         = ENOTBLK,
+    ebusy           = EBUSY,
+    eexist          = EEXIST,
+    exdev           = EXDEV,
+    enodev          = ENODEV,
+    enotdir         = ENOTDIR,
+    eisdir          = EISDIR,
+    einval          = EINVAL,
+    enfile          = ENFILE,
+    emfile          = EMFILE,
+    enotty          = ENOTTY,
+    etxtbsy         = ETXTBSY,
+    efbig           = EFBIG,
+    enospc          = ENOSPC,
+    espipe          = ESPIPE,
+    erofs           = EROFS,
+    emlink          = EMLINK,
+    epipe           = EPIPE,
+    edom            = EDOM,
+    erange          = ERANGE,
+    edeadlk         = EDEADLK,
+    enametoolong    = ENAMETOOLONG,
+    enolck          = ENOLCK,
+    enosys          = ENOSYS,
+    enotempty       = ENOTEMPTY,
+    eloop           = ELOOP,
+    enomsg          = ENOMSG,
+    eidrm           = EIDRM,
+    echrng          = ECHRNG,
+    el2nsync        = EL2NSYNC,
+    el3hlt          = EL3HLT,
+    el3rst          = EL3RST,
+    elnrng          = ELNRNG,
+    eunatch         = EUNATCH,
+    enocsi          = ENOCSI,
+    el2hlt          = EL2HLT,
+    ebade           = EBADE,
+    ebadr           = EBADR,
+    exfull          = EXFULL,
+    enoano          = ENOANO,
+    ebadrqc         = EBADRQC,
+    ebadslt         = EBADSLT,
+    ebfont          = EBFONT,
+    enostr          = ENOSTR,
+    enodata         = ENODATA,
+    etime           = ETIME,
+    enosr           = ENOSR,
+    enonet          = ENONET,
+    enopkg          = ENOPKG,
+    eremote         = EREMOTE,
+    enolink         = ENOLINK,
+    eadv            = EADV,
+    esrmnt          = ESRMNT,
+    ecomm           = ECOMM,
+    eproto          = EPROTO,
+    emultihop       = EMULTIHOP,
+    edotdot         = EDOTDOT,
+    ebadmsg         = EBADMSG,
+    eoverflow       = EOVERFLOW,
+    enotuniq        = ENOTUNIQ,
+    ebadfd          = EBADFD,
+    eremchg         = EREMCHG,
+    elibacc         = ELIBACC,
+    elibbad         = ELIBBAD,
+    elibscn         = ELIBSCN,
+    elibmax         = ELIBMAX,
+    elibexec        = ELIBEXEC,
+    eilseq          = EILSEQ,
+    erestart        = ERESTART,
+    estrpipe        = ESTRPIPE,
+    eusers          = EUSERS,
+    enotsock        = ENOTSOCK,
+    edestaddrreq    = EDESTADDRREQ,
+    emsgsize        = EMSGSIZE,
+    eprototype      = EPROTOTYPE,
+    enoprotoopt     = ENOPROTOOPT,
+    eprotonosupport = EPROTONOSUPPORT,
+    esocktnosupport = ESOCKTNOSUPPORT,
+    eopnotsupp      = EOPNOTSUPP,
+    epfnosupport    = EPFNOSUPPORT,
+    eafnosupport    = EAFNOSUPPORT,
+    eaddrinuse      = EADDRINUSE,
+    eaddrnotavail   = EADDRNOTAVAIL,
+    enetdown        = ENETDOWN,
+    enetunreach     = ENETUNREACH,
+    enetreset       = ENETRESET,
+    econnaborted    = ECONNABORTED,
+    econnreset      = ECONNRESET,
+    enobufs         = ENOBUFS,
+    eisconn         = EISCONN,
+    enotconn        = ENOTCONN,
+    eshutdown       = ESHUTDOWN,
+    etoomanyrefs    = ETOOMANYREFS,
+    etimedout       = ETIMEDOUT,
+    econnrefused    = ECONNREFUSED,
+    ehostdown       = EHOSTDOWN,
+    ehostunreach    = EHOSTUNREACH,
+    ealready        = EALREADY,
+    einprogress     = EINPROGRESS,
+    estale          = ESTALE,
+    euclean         = EUCLEAN,
+    enotnam         = ENOTNAM,
+    enavail         = ENAVAIL,
+    eisnam          = EISNAM,
+    eremoteio       = EREMOTEIO,
+    edquot          = EDQUOT,
+    enomedium       = ENOMEDIUM,
+    emediumtype     = EMEDIUMTYPE,
+    ecanceled       = ECANCELED,
+    enokey          = ENOKEY,
+    ekeyexpired     = EKEYEXPIRED,
+    ekeyrevoked     = EKEYREVOKED,
+    ekeyrejected    = EKEYREJECTED,
+    eownerdead      = EOWNERDEAD,
+    enotrecoverable = ENOTRECOVERABLE,
+};
+
 struct errc {
+    using enum error_code;
+
     static errc from_errno() {
         return {errno};
     }
 
     [[nodiscard]]
-    std::string_view to_string() const {
+    constexpr std::string_view to_string() const {
         switch (code) {
         case 0: return "OK"sv;
         case EPERM: return "EPERM"sv;
@@ -151,7 +285,7 @@ struct errc {
     }
 
     [[nodiscard]]
-    std::string_view description() const {
+    constexpr std::string_view description() const {
         switch (code) {
         case 0: return "no error"sv;
         case EPERM: return "operation not permitted"sv;
@@ -288,7 +422,7 @@ struct errc {
     }
 
     [[nodiscard]]
-    std::string info() const {
+    constexpr std::string info() const {
         auto str   = to_string();
         auto descr = description();
 
@@ -307,7 +441,15 @@ struct errc {
         return os << err.to_string();
     }
 
-    operator int() const {
+    constexpr bool operator==(const error_code& code) {
+        return int(code) == this->code;
+    }
+
+    constexpr bool operator!=(const error_code& code) {
+        return !(*this == code);
+    }
+
+    constexpr operator int() const {
         return code;
     }
 

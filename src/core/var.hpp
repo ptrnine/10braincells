@@ -17,6 +17,7 @@
 #include "utility/idx_dispatch_r.hpp"
 #include "utility/move.hpp"
 #include "utility/overloaded.hpp"
+#include <core/traits/remove_cvref.hpp>
 
 #define fwd(x) static_cast<decltype(x)>(x)
 
@@ -34,19 +35,18 @@ namespace dtls {
     template <typename... Ts>
     concept all_triv_dtor = (trivial_dtor<Ts> && ...);
 
-
-#define def_trivdtor_storage_field(i)                                               \
-    T##i v##i;                                                                      \
-    constexpr var_storage(int_const<IdxS+i>, auto&&... args): v##i(fwd(args)...) {} \
-    constexpr void        emplace(int_const<IdxS+i> idx, auto&&... args) {          \
-        if constexpr (trivial_move_assign<var_storage>)                             \
-            *this = var_storage(idx, fwd(args)...);                                 \
-        else                                                                        \
-            ::new (&v##i) T##i(fwd(args)...);                                       \
-    }                                                                               \
-    constexpr T##i&       get(int_const<IdxS+i>) noexcept { return v##i; }          \
-    constexpr const T##i& get(int_const<IdxS+i>) const noexcept { return v##i; }
-
+#define def_trivdtor_storage_field(i)                                                 \
+    T##i v##i;                                                                        \
+    constexpr var_storage(int_const<IdxS + i>, auto&&... args): v##i(fwd(args)...) {} \
+    constexpr void emplace(int_const<IdxS + i> idx, auto&&... args) {                 \
+        if constexpr (trivial_move_assign<var_storage>)                               \
+            *this = var_storage(idx, fwd(args)...);                                   \
+        else                                                                          \
+            ::new (&v##i) T##i(fwd(args)...);                                         \
+    }                                                                                 \
+    constexpr auto&& get(this auto&& it, int_const<IdxS + i>) noexcept {              \
+        return fwd(it).v##i;                                                          \
+    }
 
 #define def_storage_field(i)                                                                               \
     T##i v##i;                                                                                             \
@@ -388,13 +388,8 @@ struct var_base<Ts...> {
     }
 
     template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) noexcept {
-        return _storage[_b._bpos].get(i + size_c<1>);
-    }
-
-    template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) const noexcept {
-        return _storage[_b._bpos].get(i + size_c<1>);
+    constexpr decltype(auto) _get(this auto&& it, int_const<I> i) noexcept {
+        return fwd(it)._storage[it._b._bpos].get(i + size_c<1>);
     }
 };
 
@@ -454,13 +449,8 @@ struct var_base<Ts...> {
     }
 
     template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) noexcept {
-        return _storage[_b._bpos].get(i + size_c<1>);
-    }
-
-    template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) const noexcept {
-        return _storage[_b._bpos].get(i + size_c<1>);
+    constexpr decltype(auto) _get(this auto&& it, int_const<I> i) noexcept {
+        return fwd(it)._storage[it._b._bpos].get(i + size_c<1>);
     }
 };
 
@@ -524,13 +514,8 @@ struct var_base<Ts...> {
     }
 
     template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) noexcept {
-        return _storage.get(i + size_c<1>);
-    }
-
-    template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) const noexcept {
-        return _storage.get(i + size_c<1>);
+    constexpr decltype(auto) _get(this auto&& it, int_const<I> i) noexcept {
+        return fwd(it)._storage.get(i + size_c<1>);
     }
 };
 
@@ -572,13 +557,8 @@ struct var_base<Ts...> {
     }
 
     template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) noexcept {
-        return _storage.get(i + int_c<1>);
-    }
-
-    template <size_t I>
-    constexpr decltype(auto) _get(int_const<I> i) const noexcept {
-        return _storage.get(i + int_c<1>);
+    constexpr decltype(auto) _get(this auto&& it, int_const<I> i) noexcept {
+        return fwd(it)._storage.get(i + int_c<1>);
     }
 };
 
@@ -803,39 +783,26 @@ struct var : dtls::var_impl<Ts...> {
     }
 
     template <typename T>
-    constexpr decltype(auto) unsafe_get(type_t<T> = {}) {
-        return var_base::_get(size_c<idx_of_type_pack<T, var_base>>);
+    constexpr decltype(auto) unsafe_get(this auto&& it, type_t<T> = {}) {
+        return fwd(it)._get(size_c<idx_of_type_pack<T, var_base>>);
     }
 
     template <typename T>
-    constexpr decltype(auto) unsafe_get(type_t<T> = {}) const {
-        return var_base::_get(size_c<idx_of_type_pack<T, var_base>>);
-    }
-
-    template <typename T>
-    constexpr decltype(auto) get(type_t<T> = {}) {
+    constexpr decltype(auto) get(this auto&& it, type_t<T> = {}) {
         constexpr auto idx = size_c<idx_of_type_pack<T, var_base>>;
-        if (idx != var_base::index())
+        if (idx != it.index())
             throw bad_var_access();
-        return var_base::_get(idx);
+        return fwd(it)._get(idx);
     }
 
     template <typename T>
-    constexpr decltype(auto) get(type_t<T> = {}) const {
-        constexpr auto idx = size_c<idx_of_type_pack<T, var_base>>;
-        if (idx != var_base::index())
-            throw bad_var_access();
-        return var_base::_get(idx);
+    constexpr decltype(auto) operator[](this auto&& it, type_t<T> t) {
+        return fwd(it).get(t);
     }
 
     template <typename T>
-    constexpr decltype(auto) operator[](type_t<T>) {
-        return get<T>();
-    }
-
-    template <typename T>
-    constexpr decltype(auto) operator[](type_t<T>) const {
-        return get<T>();
+    static constexpr size_t index_of(type_t<T>) {
+        return idx_of_type<T, Ts...>;
     }
 
 #if 0
@@ -910,15 +877,15 @@ struct var : dtls::var_impl<Ts...> {
 
 namespace dtls {
 constexpr decltype(auto) _visit(auto&& function, auto&& var) {
-    return idx_dispatch<decltype(auto(var))::size()>(var.index(), [&](auto i) {
+    return idx_dispatch<remove_cvref<decltype(var)>::size()>(var.index(), [&](auto i) -> decltype(auto) {
         return fwd(function)(fwd(var)._get(i));
     });
 }
 
 constexpr decltype(auto) _visit(auto&& function, auto&& var1, auto&& var2, auto&&... vars) {
-    return idx_dispatch<decltype(auto(var1))::size()>(var1.index(), [&](auto i1) {
+    return idx_dispatch<remove_cvref<decltype(var1)>::size()>(var1.index(), [&](auto i1) -> decltype(auto) {
         return _visit(
-            [&](auto&&... a) {
+            [&](auto&&... a) -> decltype(auto) {
                 return fwd(function)(fwd(var1)._get(i1), fwd(a)...);
             },
             fwd(var2),

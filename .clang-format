@@ -7,7 +7,7 @@ AccessModifierOffset: -4
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 AlignConsecutiveMacros: true
-AlignEscapedNewlines: Right
+AlignEscapedNewlines: Left
 AlignOperands: true
 AlignTrailingComments: true
 AllowAllArgumentsOnNextLine: true
@@ -17,8 +17,8 @@ AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: true
-AllowShortLambdasOnASingleLine: Inline
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Empty
 BinPackArguments: false
 BinPackParameters: false
 

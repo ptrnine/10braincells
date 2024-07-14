@@ -14,9 +14,14 @@ template <typename T>
 struct printer;
 
 template <typename T>
+concept printable_to_string = requires (const T& v) {
+    std::cout << to_string(v);
+};
+
+template <typename T>
 concept printable_std = requires(const T& v) {
     std::cout << v;
-};
+} && !printable_to_string<T>;
 
 template <typename T>
 concept printable = requires {
@@ -27,7 +32,7 @@ template <typename T>
 concept printable_range = requires(const T& v) {
     {v.begin()};
     {v.end()};
-} && !printable<T> && !printable_std<T>;
+} && !printable<T> && !printable_std<T> && !printable_to_string<T>;
 
 inline void print_any(std::ostream& os, bool value) {
     os << (value ? "true" : "false");
@@ -40,6 +45,10 @@ inline void print_any(std::ostream& os, std::byte value) {
 
 void print_any(std::ostream& os, const printable_std auto& value) {
     os << value;
+}
+
+void print_any(std::ostream& os, const printable_to_string auto& value) {
+    os << to_string(value);
 }
 
 void print_any(std::ostream& os, const printable_range auto& value);

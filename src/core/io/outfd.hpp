@@ -11,36 +11,31 @@ public:
     template <typename DerivedT2, typename Impl2, typename TT, size_t SS, auto... SSettings>
     friend class outfd_base_t;
 
-    using fd_type = decltype(Impl::impl_open("", fd_flag{}, file_permissions{}));
+    using fd_type = decltype(Impl::impl_open("", sys::openflags{}, sys::file_perms{}));
 
     static constexpr bool exception_on_syswrite_fail =
         details::check_enable<fd_exception_on_syswrite_fail>(Settings...);
     static constexpr bool exception_on_seek_fail = details::check_enable<fd_exception_on_seek_fail>(Settings...);
 
-    constexpr static DerivedT raw_create(fd_type fd) {
-        DerivedT of;
-        of.fd = fd;
-        return of;
-    }
+    outfd_base_t(fd_type ofd = Impl::invalid_fd()): fd(ofd) {}
 
-    outfd_base_t() = default;
+    outfd_base_t(const char* filename, sys::file_perms create_permissions):
+        fd(Impl::impl_open(
+            filename, sys::openflag::write_only | sys::openflag::create | sys::openflag::trunc, create_permissions)) {}
 
-    outfd_base_t(const char* filename, file_permissions create_permissions):
-        fd(Impl::impl_open(filename, fd_flag::write_only | fd_flag::create | fd_flag::trunc, create_permissions)) {}
-
-    outfd_base_t(const char*      filename,
-                 fd_combined_flag flags              = fd_flag::write_only | fd_flag::create | fd_flag::trunc,
-                 file_permissions create_permissions = file_permissions::user_rw | file_permissions::group_read |
-                                                       file_permissions::other_read):
+    outfd_base_t(const char*     filename,
+                 sys::openflags  flags = sys::openflag::write_only | sys::openflag::create | sys::openflag::trunc,
+                 sys::file_perms create_permissions = sys::file_perms::user_rw | sys::file_perms::group_read |
+                                                      sys::file_perms::other_read):
         fd(Impl::impl_open(filename, flags, create_permissions)) {}
 
-    outfd_base_t(const std::string& filename, file_permissions create_permissions):
+    outfd_base_t(const std::string& filename, sys::file_perms create_permissions):
         outfd_base_t(filename.data(), create_permissions) {}
 
     outfd_base_t(const std::string& filename,
-                 fd_combined_flag   flags              = fd_flag::write_only | fd_flag::create | fd_flag::trunc,
-                 file_permissions   create_permissions = file_permissions::user_rw | file_permissions::group_read |
-                                                       file_permissions::other_read):
+                 sys::openflags     flags = sys::openflag::write_only | sys::openflag::create | sys::openflag::trunc,
+                 sys::file_perms    create_permissions = sys::file_perms::user_rw | sys::file_perms::group_read |
+                                                      sys::file_perms::other_read):
         outfd_base_t(filename.data(), flags, create_permissions) {}
 
     outfd_base_t(const outfd_base_t&) = delete;
@@ -75,7 +70,7 @@ public:
             size = 0;
             pos  = 0;
         }
-        of.fd = -1;
+        of.fd = Impl::invalid_fd();
     }
 
     template <typename DerivedT2, typename Impl2, typename TT, size_t SS, auto... SSettings>
@@ -106,7 +101,7 @@ public:
             size = 0;
             pos  = 0;
         }
-        of.fd = -1;
+        of.fd = Impl::invalid_fd();
         return *this;
     }
 
@@ -162,6 +157,32 @@ public:
 
     DerivedT& writesome(outfd_concepts::Writable<T> auto&&... some) noexcept(!exception_on_syswrite_fail) {
         (write_any(some), ...);
+        return static_cast<DerivedT&>(*this);
+    }
+
+    template <typename U>
+        requires(!outfd_concepts::Writable<U, T>) && requires(const U& c) {
+            { *c.begin() } -> outfd_concepts::Writable<T>;
+            { c.end() };
+        }
+    DerivedT& write_fold(const U& container) {
+        for (auto&& v : container)
+            write_fold(v);
+        return static_cast<DerivedT&>(*this);
+    }
+
+    template <typename U>
+        requires outfd_concepts::Writable<U, T>
+    DerivedT& write_fold(const U& container) {
+        write_any(container);
+        return static_cast<DerivedT&>(*this);
+    }
+
+    template <typename T1, typename T2, typename... Ts>
+    DerivedT& write_fold(const T1& c1, const T2& c2, const Ts&... cs) {
+        write_fold(c1);
+        write_fold(c2);
+        (write_fold(cs), ...);
         return static_cast<DerivedT&>(*this);
     }
 
@@ -222,7 +243,7 @@ public:
 
 private:
     void destroy() {
-        if (fd < 0)
+        if (fd == Impl::invalid_fd())
             return;
 
         if (size != 0)
@@ -231,7 +252,7 @@ private:
     }
 
 private:
-    fd_type fd   = Impl::default_outfd();
+    fd_type fd   = Impl::invalid_fd();
     size_t  size = 0;
     size_t  pos  = 0;
     T       buf[S];

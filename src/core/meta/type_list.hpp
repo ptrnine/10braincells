@@ -3,6 +3,7 @@
 #include "../concepts/inheritance.hpp"
 #include "../int_const.hpp"
 #include "../traits/type_at_idx.hpp"
+#include "../traits/idx_of_type.hpp"
 #include "../utility/forward.hpp"
 #include "../utility/idx_dispatch.hpp"
 #include "../utility/int_seq.hpp"
@@ -23,14 +24,13 @@ namespace details {
     }
 }
 
-template <size_t I, typename T>
-struct indexed_type {
-    static inline constexpr size_t idx = I;
-    using type = T;
-};
-
 template <typename... Ts>
 struct type_list_t {
+    template <typename T>
+    constexpr bool contains(type_t<T> = {}) const {
+        return any_of<T, Ts...>;
+    }
+
     template <typename T>
     constexpr auto prepend(T v) const {
         return type_prepend(*this, v);
@@ -83,6 +83,11 @@ struct type_list_t {
         return type<type_at_idx<size_t(v), Ts...>>;
     }
 
+    template <typename T>
+    constexpr auto operator[](type_t<T>) const {
+        return int_c<idx_of_type<T, Ts...>>;
+    }
+
     constexpr auto foreach(auto&& handler) const {
         (handler(type<Ts>), ...);
     }
@@ -110,7 +115,7 @@ static inline constexpr type_list_t<Ts...> type_list = {};
 
 namespace details {
     template <typename... Ts, size_t... Idxs>
-    constexpr type_list_t<indexed_type<Idxs, Ts>...> make_indexed_helper(type_list_t<Ts...>, idx_seq<Idxs...>) {
+    constexpr type_list_t<indexed_t<Idxs, Ts>...> make_indexed_helper(type_list_t<Ts...>, idx_seq<Idxs...>) {
         return {};
     }
 }

@@ -7,10 +7,16 @@ add_executable(tests-core
     utility.cpp
     var.cpp
     opt.cpp
+    ranges.cpp
+    function.cpp
+    ca_traits.cpp
+    ptr_map.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-sign-conversion>)
+#target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=undefined>)
+#target_link_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=undefined>)
 
 target_link_libraries(tests-core self::src Catch2::Catch2 Catch2::Catch2WithMain)
 catch_discover_tests(tests-core)
