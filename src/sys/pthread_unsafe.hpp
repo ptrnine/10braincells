@@ -12,9 +12,9 @@ struct tcbhead {
     void*                  self;
     int                    multiple_threads;
     int                    gscope_flag;
-    uptr              sysinfo;
-    uptr              stack_guard;
-    uptr              pointer_guard;
+    uptr                   sysinfo;
+    uptr                   stack_guard;
+    uptr                   pointer_guard;
     unsigned long int      unused_vgetcpu_cache[2];
     unsigned int           feature_1;
     int                    __glibc_unused1;
