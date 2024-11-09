@@ -23,7 +23,7 @@ struct write_provider {
     auto write(fd_t fd, const core::trivial_span_like auto& data) {
         auto res = write(fd, data.data(), data.size() * sizeof(*data.data()));
         if (res) {
-            if (*res < data.size())
+            if (*res < data.size() * sizeof(*data.data()))
                 res.set(errc{ENAVAIL});
             else
                 *res /= sizeof(*data.data());
