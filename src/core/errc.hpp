@@ -9,6 +9,7 @@ namespace core
 using namespace std::string_view_literals;
 
 enum class error_code {
+    ok              = 0,
     eperm           = EPERM,
     enoent          = ENOENT,
     esrch           = ESRCH,
@@ -143,13 +144,16 @@ enum class error_code {
 struct errc {
     using enum error_code;
 
+    constexpr errc(int icode): code(error_code(icode)) {}
+    constexpr errc(error_code icode = error_code::ok): code(icode) {}
+
     static errc from_errno() {
-        return {errno};
+        return {error_code{errno}};
     }
 
     [[nodiscard]]
     constexpr std::string_view to_string() const {
-        switch (code) {
+        switch ((int)code) {
         case 0: return "OK"sv;
         case EPERM: return "EPERM"sv;
         case ENOENT: return "ENOENT"sv;
@@ -286,7 +290,7 @@ struct errc {
 
     [[nodiscard]]
     constexpr std::string_view description() const {
-        switch (code) {
+        switch ((int)code) {
         case 0: return "no error"sv;
         case EPERM: return "operation not permitted"sv;
         case ENOENT: return "no such file or directory"sv;
@@ -442,7 +446,7 @@ struct errc {
     }
 
     constexpr bool operator==(const error_code& code) {
-        return int(code) == this->code;
+        return code == this->code;
     }
 
     constexpr bool operator!=(const error_code& code) {
@@ -450,9 +454,13 @@ struct errc {
     }
 
     constexpr operator int() const {
+        return (int)code;
+    }
+
+    constexpr operator error_code() const {
         return code;
     }
 
-    int code = 0;
+    error_code code;
 };
 } // namespace core
