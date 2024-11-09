@@ -38,19 +38,26 @@ enum class openflag : int {
 };
 
 struct openflags {
+    using enum openflag;
+
     constexpr openflags() = default;
     constexpr openflags(openflag ivalue): value(int(ivalue)) {}
 
-    constexpr openflags operator|(openflag flag) const {
-        return openflag(value | int(flag));
+    constexpr openflags operator|(openflags flag) const {
+        return openflag(value | flag.value);
     }
 
-    constexpr openflags operator&(openflag flag) const {
-        return openflag(value & int(flag));
+    constexpr openflags operator&(openflags flag) const {
+        return openflag(value & flag.value);
     }
 
-    constexpr openflags& operator|=(openflag flag) {
-        value = int(value | int(flag));
+    constexpr openflags& operator|=(openflags flag) {
+        value = int(value | flag.value);
+        return *this;
+    }
+
+    constexpr openflags& operator&=(openflags flag) {
+        value = int(value & flag.value);
         return *this;
     }
 
