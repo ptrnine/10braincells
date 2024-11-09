@@ -1,28 +1,19 @@
 #pragma once
 
-#include <type_traits>
+#include <core/io/basic_types.hpp>
+#include <sys/statx.hpp>
 
-namespace core::details {
-template <typename T>
-constexpr bool check_enable(auto... settings) {
-    return ((std::is_same_v<decltype(settings), T> ? int(T::enable) == int(settings) : false) || ...);
-}
-
-template <typename T>
-constexpr auto settings_get_value(auto... settings) {
-    constexpr auto get_v = [](auto v) constexpr {
-        if constexpr (std::is_same_v<T, decltype(v)>)
-            return +v;
-        else
-            return 0;
-    };
-    return (get_v(settings) + ... + 0);
-}
-
-struct autocast {
-    template <typename T>
-    operator T() {
-        return {};
+namespace core::io
+{
+inline bool is_pipe_like(fd_t fd) {
+    if (auto stx = sys::statx(fd, sys::statx_mask::size)) {
+        switch (stx->mode.type()) {
+        case sys::file_type::socket:
+        case sys::file_type::fifo:
+        case sys::file_type::chardev: return true;
+        default: return false;
+        }
     }
-};
-} // namespace core::details
+    return false;
+}
+} // namespace core::io
