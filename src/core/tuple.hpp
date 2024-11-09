@@ -119,6 +119,11 @@ struct tuple : dtls::tuple_impl<make_idx_seq<sizeof...(Ts)>, Ts...> {
         return get<size_t(idx)>(*this);
     }
 
+    template <typename T>
+    constexpr decltype(auto) operator[](this auto&& it, type_t<T>) noexcept {
+        return tget<T>(fwd(it));
+    }
+
     static inline constexpr auto size() noexcept {
         return sizeof...(Ts);
     }

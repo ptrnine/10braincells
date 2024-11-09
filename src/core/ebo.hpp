@@ -76,4 +76,35 @@ template <size_t idx, ebo_super T>
 constexpr T&& get(ebo<idx, T>&& e) noexcept {
     return static_cast<T&&>(e);
 }
+
+
+template <typename T, size_t idx>
+constexpr T& tget(ebo<idx, T>& e) noexcept {
+    return e.data;
+}
+
+template <typename T, size_t idx>
+constexpr const T& tget(const ebo<idx, T>& e) noexcept {
+    return e.data;
+}
+
+template <typename T, size_t idx>
+constexpr T&& tget(ebo<idx, T>&& e) noexcept {
+    return static_cast<T&&>(e.data);
+}
+
+template <ebo_super T, size_t idx>
+constexpr T& tget(ebo<idx, T>& e) noexcept {
+    return e;
+}
+
+template <ebo_super T, size_t idx>
+constexpr const T& tget(const ebo<idx, T>& e) noexcept {
+    return e;
+}
+
+template <ebo_super T, size_t idx>
+constexpr T&& tget(ebo<idx, T>&& e) noexcept {
+    return static_cast<T&&>(e);
+}
 } // namespace core
