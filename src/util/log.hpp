@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/io/std.hpp>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -7,12 +8,15 @@
 #include <atomic>
 
 #include <core/compact_hashes.hpp>
-#include <core/io.hpp>
+#include <core/io/file.hpp>
+#include <core/io/helpers.hpp>
 #include <core/ranges/split.hpp>
 
 #include <util/basic_types.hpp>
 #include <util/time.hpp>
 #include <util/using_std.hpp>
+
+#include <sys/write.hpp>
 
 #include "ring_buffer.hpp"
 #include "print.hpp"
@@ -94,14 +98,12 @@ private:
     std::atomic<u64> data = 0;
 };
 
+template <core::any_of<sys::fd_t, core::io::file> Fd>
 class log_handler_fd : public log_handler_base {
 public:
     /* TODO: replace isatty */
-    log_handler_fd(core::outfd<char> o): ofd(std::move(o)), is_fifo(ofd.is_fifo()), is_tty(isatty((int)ofd.descriptor())) {}
-
-    static std::unique_ptr<log_handler_fd> create(core::outfd<char> ofd) {
-        return std::make_unique<log_handler_fd>(std::move(ofd));
-    }
+    log_handler_fd(Fd out):
+        ofd(core::mov(out)), is_fifo(core::io::is_pipe_like(ofd)), is_tty(isatty((int)sys::fd_t(out))) {}
 
     void write_handler(log_level level, write_type wt, std::string_view time, std::string_view msg, u64 times) final {
         static constexpr std::string_view level_str[] = {
@@ -161,16 +163,21 @@ public:
         /* XXX: racy */
         size_t prev_len = prev_record_len.exchange(record.size());
         if (wt != write_type::new_record && !is_fifo)
-            ofd.impl_seek(ofd.descriptor(), -ssize_t(prev_len));
-        ofd.impl_write(ofd.descriptor(), record.data(), record.size());
+            sys::lseek(ofd, -off_t(prev_len), sys::seek_whence::cur);
+        sys::write(ofd, record.data(), record.size());
     }
 
 private:
-    core::outfd<char>   ofd;
+    Fd                  ofd;
     const bool          is_fifo;
     const bool          is_tty;
     std::atomic<size_t> prev_record_len = 0;
 };
+
+template <core::any_of<sys::fd_t, core::io::file> Fd>
+inline auto log_handler_fd_create(Fd ofd) {
+    return std::make_unique<log_handler_fd<Fd>>(core::mov(ofd));
+}
 
 template <typename T>
 class log_records {
@@ -384,7 +391,7 @@ class logger {
 public:
     logger(bool init_stdout = true) {
         if (init_stdout)
-            add_handler("stdout", log_handler_fd::create(core::outfd<char>::stdout()));
+            add_handler("stdout", log_handler_fd_create(sys::stdout_fd));
     }
 
     ~logger() {
@@ -399,10 +406,10 @@ public:
         log_to_handler(name, log_level::info, "******* handler [{}] attached *******", name);
     }
 
-    void add_handler(const std::string& name, core::outfd<char> ofd) {
+    void add_handler(const std::string& name, core::any_of<sys::fd_t, core::io::file> auto ofd) {
         {
             std::unique_lock lock{mtx};
-            handlers.insert_or_assign(name, log_handler_fd::create(std::move(ofd)));
+            handlers.insert_or_assign(name, log_handler_fd_create(core::mov(ofd)));
         }
         log_to_handler(name, log_level::info, "******* handler [{}] attached *******", name);
     }
