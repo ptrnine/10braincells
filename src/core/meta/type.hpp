@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/traits/is_array.hpp>
 #include <core/traits/is_same.hpp>
 #include <core/int_const.hpp>
 
@@ -12,7 +13,17 @@ struct indexed_t {
 };
 
 template <typename T>
-struct type_t {
+struct ctor_caller {};
+
+template <typename T> requires(!is_array<T>)
+struct ctor_caller<T> {
+    static constexpr T make(auto&&... args) {
+        return T{static_cast<decltype(args)>(args)...};
+    }
+};
+
+template <typename T>
+struct type_t : ctor_caller<T> {
     using type = T;
 
     static constexpr type_t operator()() {
