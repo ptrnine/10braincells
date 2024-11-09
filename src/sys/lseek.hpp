@@ -11,6 +11,6 @@ enum class seek_whence {
 };
 
 inline auto lseek(fd_t fd, off_t offset, seek_whence whence) {
-    return syscall<off_t>(SYS_lseek, offset, whence);
+    return syscall<off_t>(SYS_lseek, fd, offset, whence);
 }
 } // namespace sys
