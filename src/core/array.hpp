@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/basic_types.hpp>
+#include <core/meta/type.hpp>
 
 #define fwd(x) static_cast<decltype(x)>(x)
 
@@ -35,7 +36,9 @@ namespace details {
     };
 
     template <typename>
-    struct current_extent;
+    struct current_extent {
+        static inline constexpr size_t value = 0;
+    };
 
     template <typename T, size_t S>
     struct current_extent<T[S]> {
@@ -99,7 +102,6 @@ struct array {
     constexpr bool operator!=(const array& arr) const {
         return !(*this == arr);
     }
-#undef fwd
 
 #define def_member(NAME, ...) \
     constexpr auto NAME() noexcept { __VA_ARGS__ } \
@@ -134,6 +136,14 @@ array(T(&)[S3][S2][S1]) -> array<T&, S1, S2, S3>;
 
 template <typename T, size_t S1, size_t S2, size_t S3, size_t S4>
 array(T(&)[S4][S3][S2][S1]) -> array<T&, S1, S2, S3, S4>;
+
+template <typename T, size_t S>
+struct array_maker : array<T, S> {
+    constexpr array_maker(type_t<T>, auto&&... args): array<T, S>{fwd(args)...} {}
+};
+
+template <typename T, typename... Ts>
+array_maker(type_t<T>, Ts&&...) -> array_maker<T, sizeof...(Ts)>;
 
 template <size_t i, typename T, size_t... Sz>
 constexpr decltype(auto) get(core::array<T, Sz...>& array) {
