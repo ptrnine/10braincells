@@ -29,7 +29,7 @@ public:
         return val;
     }
 
-    constexpr bool not_default() {
+    constexpr bool not_default() const {
         return val != DefaultValue;
     }
 
