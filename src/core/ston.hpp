@@ -11,7 +11,7 @@ namespace core
 {
 class string_to_number_error : public exception {
 public:
-    string_to_number_error(errc ec): msg("string/number conversion failed: " + ec.info()) {}
+    string_to_number_error(std::errc ec): msg("string/number conversion failed: " + errc{int(ec)}.info()) {}
 
     const char* what() const noexcept override {
         return msg.data();
@@ -21,7 +21,7 @@ private:
     std::string msg;
 };
 
-template <typename T, sized_const_str S, typename... BaseOrFmt>
+template <typename T, sized_str S, typename... BaseOrFmt>
     requires requires(T& res, const S& str, BaseOrFmt... fmt) {
         std::from_chars(str.data(), str.data() + str.size(), res, fmt...);
     }
@@ -34,7 +34,7 @@ T ston(const S& string, BaseOrFmt... base_or_format) {
 }
 
 template <typename T, typename S, typename... BaseOrFmt>
-    requires(!sized_const_str<S>) && requires(T& res, const S& str, BaseOrFmt... fmt) {
+    requires(!sized_str<S>) && requires(T& res, const S& str, BaseOrFmt... fmt) {
         { str.begin() } -> pointer;
         { str.end() } -> pointer;
         { std::from_chars(str.begin(), str.end(), res, fmt...) };
@@ -48,7 +48,7 @@ T ston(const S& string, BaseOrFmt... base_or_format) {
 }
 
 template <typename T, typename S, typename... BaseOrFmt>
-    requires(!sized_const_str<S>) && requires(T& res, const S& str, BaseOrFmt... fmt) {
+    requires(!sized_str<S>) && requires(T& res, const S& str, BaseOrFmt... fmt) {
         { auto(str.begin().base()) } -> pointer;
         { auto(str.end().base()) } -> pointer;
         { std::from_chars(str.begin().base(), str.end().base(), res, fmt...) };
