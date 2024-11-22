@@ -35,8 +35,14 @@ execute_process(COMMAND cmake/current_arch.sh "${CMAKE_C_COMPILER}"
 set(ARCH "${ARCH_INTERNAL}" CACHE STRING "The target architecture")
 message("Target architecture: ${ARCH}")
 
+set(self_src_includes
+    "${CMAKE_BINARY_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/arch/${ARCH}"
+    "${CMAKE_SOURCE_DIR}")
+
+# Target with src includes
 add_library(self::src INTERFACE IMPORTED)
-set(self_src_includes "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/arch/${ARCH}")
 set_target_properties(self::src PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${self_src_includes}"
 )
@@ -95,7 +101,14 @@ foreach(_flag ${_cxx_flags})
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${_flag}>)
 endforeach()
 
+
+# Building
+include(cmake/codegen.cmake)
 add_subdirectory(codegen)
+
+
+add_subdirectory(src)
+
 
 if(ENABLE_TESTS)
     add_subdirectory(tests)
@@ -104,3 +117,6 @@ endif()
 # TODO: remove this later
 add_executable(test2 test2.cpp)
 target_link_libraries(test2 PRIVATE glm::glm stb::stb self::src GLEW GL glfw)
+
+add_executable(glmrot glmrot.cpp)
+target_link_libraries(glmrot PRIVATE glm::glm stb::stb self::src GLEW GL glfw)
