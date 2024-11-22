@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 
@@ -9,6 +10,9 @@
 #include <sys/close.hpp>
 #include <sys/epoll.hpp>
 #include <sys/open_flags.hpp>
+#include <sys/pipe.hpp>
+#include <sys/read.hpp>
+#include <sys/write.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -68,6 +72,8 @@ private:
     std::string msg;
 };
 
+enum class epoller_handler_result { keep_on = 0, remove, shutdown };
+
 namespace details {
     template <size_t MaxGroups, auto Value>
     auto check_group_type(int_const<Value>) {
@@ -88,7 +94,7 @@ namespace details {
         if constexpr (is_same<result, void>)
             return [h = fwd(handler)](IdType id, sys::fd_t fd, sys::epoll_events events) mutable {
                 h(id, fd, events);
-                return true;
+                return epoller_handler_result::keep_on;
             };
         else
             return fwd(handler);
@@ -125,8 +131,8 @@ public:
     static inline constexpr auto default_id       = id_type{0};
 
     using fd_type             = moveonly_trivial<sys::fd_t, sys::invalid_fd>;
-    using dedicated_handler_t = bool(sys::fd_t, sys::epoll_events);
-    using handler_t           = bool(id_type, sys::fd_t, sys::epoll_events);
+    using dedicated_handler_t = epoller_handler_result(sys::fd_t, sys::epoll_events);
+    using handler_t           = epoller_handler_result(id_type, sys::fd_t, sys::epoll_events);
 
     epoller(sys::epoll_flags flags = sys::epoll_flag::none): epfd(sys::epoll_create(flags).get()) {}
 
@@ -183,12 +189,15 @@ public:
         return true;
     }
 
-    void wait(std::span<sys::epoll_data> buffer,
+    /* Returns true for continue, false for shutdown */
+    bool wait(std::span<sys::epoll_data> buffer,
               opt<sys::nanoseconds>      timeout = null,
               sys::sigset                sigmask = sys::sigset::empty()) {
         std::unique_lock lock{_mtx};
         auto             handlers = _handlers;
         lock.unlock();
+
+        bool result = true;
 
         auto size = sys::epoll_wait(epfd, buffer, timeout, sigmask).get();
         for (size_t i = 0; i < size; ++i) {
@@ -197,9 +206,11 @@ public:
             if (details::epoll_have_handler(data)) {
                 auto [fd, handler_ptr] = details::epoll_unpack_fd_ptr(data);
                 auto handler           = (dedicated_handler_t*)handler_ptr;
-                auto continue_watch    = handler(fd, data.events);
-                if (!continue_watch)
+                auto res    = handler(fd, data.events);
+                if (res == epoller_handler_result::remove)
                     remove(fd);
+                else
+                    result &= (res == epoller_handler_result::keep_on);
             }
             else {
                 /* XXX: LE only */
@@ -211,24 +222,19 @@ public:
                 auto id = u32(data.data.u64 >> 40);
 
                 if (handlers[group]) {
-                    auto continue_watch = handlers[group](id_type(id), fd, data.events);
-                    if (!continue_watch)
+                    auto res = handlers[group](id_type(id), fd, data.events);
+                    if (res == epoller_handler_result::remove)
                         remove(fd);
+                    else
+                        result &= (res == epoller_handler_result::keep_on);
                 }
                 else {
                     remove(fd);
                 }
             }
         }
-    }
 
-    template <size_t BuffSize = 8>
-    std::jthread launch(opt<sys::nanoseconds> timeout = null, sys::sigset sigmask = sys::sigset::empty()) {
-        return std::jthread{[this, timeout, sigmask](std::stop_token st) {
-            sys::epoll_data buff[8];
-            while (!st.stop_requested())
-                this->wait(buff, timeout, sigmask);
-        }};
+        return result;
     }
 
 private:
@@ -236,6 +242,64 @@ private:
     array<function<handler_t, max_handler_size>, max_groups> _handlers;
     mutable std::mutex                                       _mtx;
 };
+
+template <auto Cfg = epoller_cfg{}>
+class epoller_thread : public epoller<Cfg> {
+public:
+    using fd_type = epoller<Cfg>::fd_type;
+
+    epoller_thread(sys::epoll_flags flags = sys::epoll_flag::none): epoller<Cfg>(flags) {
+        auto fds        = sys::pipe().get();
+        shutdown_fd_in  = fds.in;
+        shutdown_fd_out = fds.out;
+        this->add_with_dedicated_handler(shutdown_fd_in,
+                                         sys::epoll_event::in | sys::epoll_event::edge_triggered,
+                                         [](sys::fd_t fd, sys::epoll_events) {
+                                             char tmp[64];
+                                             sys::read(fd, tmp);
+                                             return epoller_handler_result::shutdown;
+                                         });
+    }
+
+    ~epoller_thread() {
+        stop();
+        if (shutdown_fd_in != sys::invalid_fd)
+            sys::close(shutdown_fd_in);
+        if (shutdown_fd_out != sys::invalid_fd)
+            sys::close(shutdown_fd_out);
+    }
+
+    template <size_t BuffSize = 8>
+    void start(opt<sys::nanoseconds> timeout = null, sys::sigset sigmask = sys::sigset::empty()) {
+        if (running.exchange(true))
+            return;
+
+        t = std::jthread{[this, timeout, sigmask]() {
+            sys::epoll_data buff[8];
+            while (true) {
+                auto keep_on = this->wait(buff, timeout, sigmask);
+                if (!keep_on)
+                    break;
+            }
+
+            running.store(false, std::memory_order_release);
+        }};
+    }
+
+    void stop() {
+        if (running.load(std::memory_order_acquire)) {
+            sys::write(shutdown_fd_out, "", 1);
+            t.join();
+        }
+    }
+
+private:
+    std::jthread     t;
+    fd_type          shutdown_fd_in;
+    fd_type          shutdown_fd_out;
+    std::atomic_bool running = false;
+};
+
 } // namespace core
 
 #undef fwd
