@@ -94,6 +94,10 @@ struct test_type {
     constexpr test_type(auto ia, auto ib, auto ic): a(ia), b(ib), c(ic) {}
 };
 
+struct test_anycast {
+    template <typename T>
+    constexpr operator T();
+};
 
 TEST_CASE("var") {
     SECTION("types") {
@@ -269,5 +273,15 @@ TEST_CASE("var") {
 
         constexpr auto r2 = visit(var<float, int>{2}, [](auto v) { return is_same<decltype(v), int>; });
         static_assert(r2);
+    }
+
+    SECTION("default_null_ctor") {
+        static_assert(!core::default_ctor<var<int, float>>);
+        static_assert(core::default_ctor<var<core::null_t, int, float>>);
+        static_assert(var<core::null_t>{}.index() == 0);
+    }
+
+    SECTION("no_ctor_ambiguity") {
+        static_assert(core::ctor<var<int, float>, test_anycast>);
     }
 }

@@ -17,6 +17,7 @@
 #include "utility/idx_dispatch_r.hpp"
 #include "utility/move.hpp"
 #include "utility/overloaded.hpp"
+#include <core/null.hpp>
 #include <core/traits/remove_cvref.hpp>
 
 #define fwd(x) static_cast<decltype(x)>(x)
@@ -736,6 +737,26 @@ public:
     }
 };
 
+namespace details {
+    template <typename... Ts>
+    struct first_is_null {
+        static inline constexpr bool value = false;
+    };
+
+    template <typename... Ts>
+    struct first_is_null<null_t, Ts...> {
+        static inline constexpr bool value = true;
+    };
+
+    struct _uniq_type {};
+    struct _prohibit_any_ctor {
+        _uniq_type _v;
+    };
+
+    template <typename T>
+    concept _any_constructible = requires (T&& v) { _prohibit_any_ctor{v}; };
+}
+
 template <typename... Ts>
 struct var : dtls::var_impl<Ts...> {
     using var_base = dtls::var_base<Ts...>;
@@ -750,10 +771,11 @@ struct var : dtls::var_impl<Ts...> {
         return size_c<sizeof...(Ts)>;
     }
 
-    constexpr var() noexcept = delete;
+    constexpr var() noexcept requires details::first_is_null<Ts...>::value : var(null) {}
+    constexpr var() noexcept requires (!details::first_is_null<Ts...>::value) = delete;
 
     template <typename T, typename O = decltype(overloaded{resolve_overload<Ts>()...})>
-        requires (!base_of<var_base, remove_const_ref<T>>)
+        requires (!base_of<var_base, remove_const_ref<T>> && !details::_any_constructible<T>)
     constexpr var(T&& value) noexcept(nothrow_ctor<typename decltype(O{}(value))::type, T&&>):
         var_impl(size_c<idx_of_type_pack<typename decltype(O{}(value))::type, var_base>>, fwd(value)) {}
 
