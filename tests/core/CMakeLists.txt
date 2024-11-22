@@ -11,6 +11,9 @@ add_executable(tests-core
     function.cpp
     ca_traits.cpp
     ptr_map.cpp
+    generator.cpp
+    io.cpp
+    args.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
