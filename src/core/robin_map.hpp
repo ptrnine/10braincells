@@ -5,10 +5,12 @@
 #include <core/array.hpp>
 #include <core/concepts/ctor.hpp>
 #include <core/concepts/trivial_dtor.hpp>
+#include <core/construct_at.hpp>
 #include <core/exception.hpp>
 #include <core/traits/add_const.hpp>
 #include <core/traits/ca_traits.hpp>
 #include <core/traits/conditional.hpp>
+#include <core/traits/declval.hpp>
 #include <core/traits/is_ptr.hpp>
 #include <core/traits/remove_ptr.hpp>
 #include <core/tuple.hpp>
@@ -50,40 +52,40 @@ public:
     using K = decltype(declval<BucketT>().key());
     using V = remove_ref<decltype(declval<BucketT>().value())>;
 
-    robin_map_iterator(): _ptr(nullptr) {}
-    robin_map_iterator(BucketT* ptr): _ptr(ptr) {
+    constexpr robin_map_iterator(): _ptr(nullptr) {}
+    constexpr robin_map_iterator(BucketT* ptr): _ptr(ptr) {
         while (_ptr->empty())
             ++_ptr;
     }
 
-    robin_map_iterator& operator++() {
+    constexpr robin_map_iterator& operator++() {
         ++_ptr;
         while (_ptr->empty())
             ++_ptr;
         return *this;
     }
 
-    robin_map_iterator operator++(int) {
+    constexpr robin_map_iterator operator++(int) {
         auto it = *this;
         ++(*this);
         return it;
     }
 
-    tuple<K, V&> operator*() const {
+    constexpr tuple<K, V&> operator*() const {
         return {_ptr->key(), _ptr->value()};
     }
 
-    K key() const {
+    constexpr K key() const {
         return _ptr->key();
     }
 
-    auto& value(this auto&& it) {
+    constexpr auto& value(this auto&& it) {
         return it._ptr->value();
     }
 
-    auto operator<=>(const robin_map_iterator& iterator) const = default;
+    constexpr auto operator<=>(const robin_map_iterator& iterator) const = default;
 
-    BucketT* pointer() const {
+    constexpr BucketT* pointer() const {
         return _ptr;
     }
 
@@ -195,8 +197,8 @@ struct robin_map_bucket_base<K, V> {
         return fwd(it)._value;
     }
 
-    constexpr V& construct_value(auto&&... args) {
-        return *::new(static_cast<void*>(&_value)) V(fwd(args)...);
+    constexpr auto construct_value(auto&&... args) {
+        return core::construct_at(&_value, fwd(args)...);
     }
 
     constexpr void set_value(auto&& value) {
@@ -225,7 +227,7 @@ template <typename BucketT, typename V>
 using robin_map_bucket = ca_traits<robin_map_bucket_ca_traits, BucketT, V>;
 
 template <typename BucketT, typename V>
-void swap(robin_map_bucket<BucketT, V>& lhs, robin_map_bucket<BucketT, V>& rhs) {
+constexpr void swap(robin_map_bucket<BucketT, V>& lhs, robin_map_bucket<BucketT, V>& rhs) {
     auto tmp = mov(rhs);
     rhs = mov(lhs);
     lhs = mov(tmp);
@@ -265,7 +267,7 @@ public:
     //static inline constexpr size_t max_distance =
     //    details::ptr_map_max_distance > MaxSize + 1 ? MaxSize + 1 : details::ptr_map_max_distance;
 
-    robin_map_impl() {
+    constexpr robin_map_impl() {
         if constexpr (have_static_storage)
             _data[capacity()].set_distance(1);
     }
@@ -409,7 +411,7 @@ public:
         _occupied = 0;
     }
 
-    auto& raw_data() const {
+    constexpr auto& raw_data() const {
         return _data;
     }
 
@@ -422,11 +424,11 @@ private:
             return MaxDist;
     }
 
-    inline constexpr size_t next_idx(size_t idx) {
+    inline constexpr size_t next_idx(size_t idx) const {
         return (idx + 1) % capacity();
     }
 
-    inline constexpr size_t to_idx(const key_t& key) {
+    inline constexpr size_t to_idx(const key_t& key) const {
         auto idx = Hash{}(key);
         return size_t(idx % capacity());
     }
