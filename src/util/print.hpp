@@ -29,7 +29,7 @@ concept printable = requires {
 } && !printable_std<T>;
 
 template <typename T>
-concept printable_range = requires(const T& v) {
+concept printable_range = requires(T&& v) {
     {v.begin()};
     {v.end()};
 } && !printable<T> && !printable_std<T> && !printable_to_string<T>;
@@ -81,14 +81,15 @@ void print_any(std::ostream& os, const T(&value)[S]) {
     }
 }
 
-void print_any(std::ostream& os, const printable_range auto& value) {
-    if (value.begin() == value.end()) {
+void print_any(std::ostream& os, printable_range auto&& value) {
+    auto i = value.begin();
+    if (i == value.end()) {
         os << "{}";
         return;
     }
 
     os << '{';
-    for (auto i = value.begin();;) {
+    while (true) {
         print_any(os, *i);
         if constexpr (!std::is_same_v<std::decay_t<decltype(*i)>, char>) {
             if (++i != value.end())
@@ -149,28 +150,28 @@ struct printer<std::optional<T>> {
 };
 
 template <typename... Ts>
-void fprint(std::ostream& os, const Ts&... args) {
+void fprint(std::ostream& os, Ts&&... args) {
     (print_any(os, args), ...);
 }
 
 template <typename... Ts>
-void fprintln(std::ostream& os, const Ts&... args) {
+void fprintln(std::ostream& os, Ts&&... args) {
     (print_any(os, args), ...);
     os << std::endl;
 }
 
 template <typename... Ts>
-void print(const Ts&... args) {
+void print(Ts&&... args) {
     fprint(std::cout, args...);
 }
 
 template <typename... Ts>
-void println(const Ts&... args) {
+void println(Ts&&... args) {
     fprintln(std::cout, args...);
 }
 
 template <size_t I = 0, typename... Ts>
-void fprintf(std::ostream& os, std::string_view format_str, const Ts&... args) {
+void fprintf(std::ostream& os, std::string_view format_str, Ts&&... args) {
     size_t fmt_start = 0;
     size_t fmt_size  = 0;
     bool on_fmt = false;
@@ -184,7 +185,7 @@ void fprintf(std::ostream& os, std::string_view format_str, const Ts&... args) {
                 //auto fmt = format_str.substr(fmt_start, fmt_size);
                 on_fmt = false;
                 if constexpr (I < sizeof...(Ts)) {
-                    print_any(os, std::get<I>(std::tuple<const Ts&...>(args...)));
+                    print_any(os, std::get<I>(std::tuple<Ts&&...>(args...)));
                     fprintf<I + 1>(os, format_str.substr(fmt_start + fmt_size + 1), args...);
                     return;
                 }
@@ -203,23 +204,23 @@ void fprintf(std::ostream& os, std::string_view format_str, const Ts&... args) {
 }
 
 template <typename... Ts>
-void printf(std::string_view format_str, const Ts&... args) {
+void printf(std::string_view format_str, Ts&&... args) {
     fprintf(std::cout, format_str, args...);
 }
 
 template <typename... Ts>
-void fprintfln(std::ostream& os, std::string_view format_str, const Ts&... args) {
+void fprintfln(std::ostream& os, std::string_view format_str, Ts&&... args) {
     fprintf(os, format_str, args...);
     os << std::endl;
 }
 
 template <typename... Ts>
-void printfln(std::string_view format_str, const Ts&... args) {
+void printfln(std::string_view format_str, Ts&&... args) {
     fprintfln(std::cout, format_str, args...);
 }
 
 template <typename... Ts>
-std::string format(std::string_view format, const Ts&... args) {
+std::string format(std::string_view format, Ts&&... args) {
     std::stringstream ss;
     fprintf(ss, format, args...);
     return ss.str();
