@@ -3,6 +3,7 @@
 #include <core/begin_end.hpp>
 #include <core/int_const.hpp>
 #include <core/meta/type_list.hpp>
+#include <core/traits/declval.hpp>
 #include <core/tuple.hpp>
 #include <core/utility/int_seq.hpp>
 
