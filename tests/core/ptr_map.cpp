@@ -2,7 +2,6 @@
 
 #include <core/robin_map.hpp>
 #include <core/ranges/zip.hpp>
-#include <util/log.hpp>
 
 using namespace core;
 
