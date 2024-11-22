@@ -5,7 +5,6 @@
 #include "int_const.hpp"
 #include "meta/type_list.hpp"
 #include "traits/decay.hpp"
-#include "traits/declval.hpp"
 #include "traits/type_at_idx.hpp"
 #include "utility/int_seq.hpp"
 #include "utility/move.hpp"
