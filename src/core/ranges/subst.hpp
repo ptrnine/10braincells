@@ -15,16 +15,20 @@ struct subst_entry {
     subst_entry(const T* iwhat, const T* ireplace_with): what(iwhat), replace_with(ireplace_with) {}
     subst_entry(const std::basic_string_view<T>& iwhat, const std::basic_string_view<T>& ireplace_with):
         what(iwhat), replace_with(ireplace_with) {}
+    subst_entry(const std::basic_string_view<T>& iwhat, const std::basic_string<T>& ireplace_with):
+        what(iwhat), replace_with(ireplace_with) {}
+    subst_entry(const T* iwhat, const std::basic_string<T>& ireplace_with):
+        what(iwhat), replace_with(ireplace_with) {}
 
     std::basic_string_view<T> what;
     std::basic_string_view<T> replace_with;
 };
 
-template <typename T>
-subst_entry(const T*, const T*) -> subst_entry<T>;
-
-template <typename T>
-subst_entry(const std::basic_string_view<T>&, const std::basic_string_view<T>&) -> subst_entry<T>;
+//template <typename T>
+//subst_entry(const T*, const T*) -> subst_entry<T>;
+//
+//template <typename T>
+//subst_entry(const std::basic_string_view<T>&, const std::basic_string_view<T>&) -> subst_entry<T>;
 
 struct subst_iterator_sentinel {};
 
