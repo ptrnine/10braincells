@@ -5,6 +5,7 @@
 
 #include <core/begin_end.hpp>
 #include <core/concepts/any_of.hpp>
+#include <core/concepts/char_type.hpp>
 #include <core/concepts/convertible_to.hpp>
 #include <core/traits/declval.hpp>
 #include <core/traits/is_ptr.hpp>
@@ -18,18 +19,18 @@ concept range = requires(T&& v) {
     end(v);
 };
 
-template <typename T>
-concept input_iterator = requires(T v) {
-    {v++};
-    {++v};
-    {*v};
-    { v == v } -> convertible_to<bool>;
-    { v != v } -> convertible_to<bool>;
+template <typename T1, typename T2 = T1>
+concept input_iterator = requires(T1 t1, T2 t2) {
+    {t1++};
+    {++t1};
+    {*t1};
+    { t1 == t2 } -> convertible_to<bool>;
+    { t1 != t2 } -> convertible_to<bool>;
 };
 
 template <typename T>
 concept input_range = range<T> && requires(T&& v) {
-    requires input_iterator<decltype(begin(v))>;
+    requires input_iterator<decltype(begin(v)), decltype(end(v))>;
 };
 
 template <typename T>
@@ -99,12 +100,10 @@ struct range_holder<I1, I2> : range_base<I1, I2> {
 namespace details
 {
     template <typename T>
-    concept char_type =
-        same_as<remove_cvref<T>, char> || same_as<remove_cvref<T>, wchar_t> || same_as<remove_cvref<T>, char16_t> ||
-        same_as<remove_cvref<T>, char32_t> || same_as<remove_cvref<T>, char8_t>;
+    concept char_ref_or_type = char_type<remove_cvref<T>>;
 
     template <typename I1, typename I2>
-    concept string_view_ctor = requires (I1 i) { {*i} -> char_type; } && requires (I1 i1, I2 i2) {
+    concept string_view_ctor = requires (I1 i) { {*i} -> char_ref_or_type; } && requires (I1 i1, I2 i2) {
         std::basic_string_view<remove_cvref<decltype(*i1)>>(i1, i2);
     };
 } // namespace details
