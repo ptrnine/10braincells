@@ -130,7 +130,8 @@ public:
         other_exec   = S_IXOTH,
         sticky_bit   = S_ISVTX,
         other_rw     = other_read | other_write,
-        other_rwx    = other_read | other_write | other_exec
+        other_rwx    = other_read | other_write | other_exec,
+        o644         = user_rw | group_read | other_read,
     };
 
     struct perms_str {
