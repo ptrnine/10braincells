@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/io/rw_impl.hpp>
+#include <core/ranges/range.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -63,18 +64,16 @@ public:
         write(std::span{&data, 1});
     }
 
+    template <input_range R> requires (!trivial<R> && !trivial_span_like<R>)
+    void write(R&& data) {
+        for (auto&& v : data)
+            write(v);
+    }
+
     void write(const auto& data1, const auto& data2, const auto&... data) {
         write(data1);
         write(data2);
         (write(data), ...);
-    }
-
-    void write_fold(auto&&... data) {
-        auto f = [this](auto&& data) {
-            for (auto&& v : data)
-                write(v);
-        };
-        (f(data), ...);
     }
 
     void flush() {
