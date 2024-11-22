@@ -98,6 +98,10 @@ public:
         return _mmap_sz;
     }
 
+    constexpr std::string_view as_sv() const {
+        return {data<char>(), size()};
+    }
+
     fd_t fd() const {
         return _fd;
     }
