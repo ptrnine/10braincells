@@ -39,14 +39,20 @@ message("Target architecture: ${ARCH}")
 set(self_src_includes
     "${CMAKE_BINARY_DIR}/src"
     "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+set(self_src_system_includes
     "${CMAKE_SOURCE_DIR}/src/arch/${ARCH}"
-    "${CMAKE_SOURCE_DIR}")
+)
 
 # Target with src includes
 add_library(self::src INTERFACE IMPORTED)
 set_target_properties(self::src PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${self_src_includes}"
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${self_src_system_includes}"
+    INTERFACE_INCLUDE_DIRECTORIES "${self_src_includes};${self_src_system_includes}"
 )
+add_dependencies(self::src as_tuple_target)
 
 add_library(glm::glm INTERFACE IMPORTED)
 set_target_properties(glm::glm PROPERTIES
@@ -62,14 +68,14 @@ set(_cxx_flags
     -fno-strict-aliasing
     -Wall
     -Wextra
-    -Wpedantic
+    #-Wpedantic
     -Wcast-align
     -Wconversion
     -Wctor-dtor-privacy
     -Wextra-semi
     -Wfloat-equal
     -Wnon-virtual-dtor
-    -Wold-style-cast
+    -Wno-old-style-cast
     -Woverloaded-virtual
     -Wredundant-decls
     -Wsign-conversion
@@ -107,9 +113,8 @@ endforeach()
 include(cmake/codegen.cmake)
 add_subdirectory(codegen)
 
-
-add_subdirectory(src)
-
+# Run codegen required by self::src
+codegen(as_tuple ARGS "max_fields=16" OUTPUT "src/core/as_tuple.cg.hpp")
 
 if(ENABLE_TESTS)
     add_subdirectory(tests)
