@@ -6,7 +6,7 @@
 namespace core
 {
 template <typename T>
-concept trivial_span_like = (!core::trivial<T>) && requires(const T& v) {
+concept trivial_span_like = requires(const T& v) {
     { v.data() } -> ptr_to_trivial;
     { v.size() } -> convertible_to<decltype(sizeof(0))>;
 };
