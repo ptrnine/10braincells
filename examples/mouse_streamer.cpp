@@ -26,7 +26,7 @@ auto handle_keyboard(sys::fd_t fd, auto&& events_handler) {
     return poll_handle{
         fd,
         sys::poll_event::in,
-        [fd, &events_handler](auto&&) mutable {
+        [fd, &events_handler](auto&&) {
             array<sys::event, 4>                  buff;
             fixed_vector<sys::event, buff.size()> filtered;
 
@@ -75,8 +75,7 @@ auto handle_mouse(sys::fd_t fd, auto&& events_handler) {
 class event_streamer {
 public:
     event_streamer(const main_cmd<>& args):
-        src{net::ip_addr_v4::any(), *args.src_port.get()}, dst(udp_addr_helper(*args.dst)), sock{src, false} {
-        }
+        src{net::ip_addr_v4::any(), *args.src_port.get()}, dst(udp_addr_helper(*args.dst)), sock{src, false} {}
 
     void operator()(std::span<const sys::event> events) const {
         sock.send(dst, events);
