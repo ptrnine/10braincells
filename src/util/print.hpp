@@ -7,6 +7,7 @@
 #include <chrono>
 
 #include "basic_types.hpp"
+#include "core/opt.hpp"
 
 namespace util {
 
@@ -145,7 +146,17 @@ struct printer<T> {
 template <typename T>
 struct printer<std::optional<T>> {
     void operator()(std::ostream& os, const std::optional<T>& v) const {
-        print_any(os, v ? *v : "(null)");
+        print_any(os, v ? *v : "null");
+    }
+};
+
+template <typename T>
+struct printer<core::opt<T>> {
+    void operator()(std::ostream& os, const core::opt<T>& v) const {
+        if (v)
+            print_any(os, *v);
+        else
+            print_any(os, "null");
     }
 };
 
