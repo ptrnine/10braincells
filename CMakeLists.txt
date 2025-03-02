@@ -4,6 +4,7 @@ project(tbc)
 set(CMAKE_CXX_STANDARD 26)
 
 option(ENABLE_TESTS "Enable tests" ON)
+option(ENABLE_EXAMPLES "Enable examples" ON)
 option(ENABLE_ASAN "Enable address sanitizer" OFF)
 option(BUILD_3RD "Build 3rd party libraries only" OFF)
 
@@ -114,9 +115,6 @@ if(ENABLE_TESTS)
     add_subdirectory(tests)
 endif()
 
-# TODO: remove this later
-add_executable(test2 test2.cpp)
-target_link_libraries(test2 PRIVATE glm::glm stb::stb self::src GLEW GL glfw)
-
-add_executable(glmrot glmrot.cpp)
-target_link_libraries(glmrot PRIVATE glm::glm stb::stb self::src GLEW GL glfw)
+if(ENABLE_EXAMPLES)
+    add_subdirectory(examples)
+endif()
