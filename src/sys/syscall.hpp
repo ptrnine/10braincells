@@ -102,7 +102,7 @@ namespace details
 
         void throw_if_error() const {
             if ((unsigned long)_r > (~0UL - 4095UL))
-                throw errc_exception(errc{-_r});
+                throw errc_exception(errc{(int)-_r});
         }
 
         constexpr void set(errc error) {

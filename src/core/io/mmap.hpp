@@ -68,7 +68,7 @@ public:
             if (!size_init) {
                 if (auto stx = sys::statx(_fd, sys::statx_mask::size)) {
                     if (stx->size == 0 && write_enabled)
-                        sys::ftruncate(_fd, _mmap_sz).throw_if_error();
+                        sys::ftruncate(_fd, off_t(_mmap_sz)).throw_if_error();
                     else
                         _mmap_sz = stx->size;
                 }
@@ -76,7 +76,7 @@ public:
             else if (write_enabled) {
                 if (auto stx = sys::statx(_fd, sys::statx_mask::size)) {
                     if (stx->size < _mmap_sz)
-                        sys::ftruncate(_fd, _mmap_sz).throw_if_error();
+                        sys::ftruncate(_fd, off_t(_mmap_sz)).throw_if_error();
                 }
             }
         }
