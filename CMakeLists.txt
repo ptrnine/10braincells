@@ -7,6 +7,7 @@ option(ENABLE_TESTS "Enable tests" ON)
 option(ENABLE_EXAMPLES "Enable examples" ON)
 option(ENABLE_ASAN "Enable address sanitizer" OFF)
 option(BUILD_3RD "Build 3rd party libraries only" OFF)
+set(VULKAN_API "/usr/share/vulkan/registry/vk.xml")
 
 if(BUILD_3RD)
     include(cmake/submodules_init.cmake)
@@ -36,6 +37,7 @@ execute_process(COMMAND cmake/current_arch.sh "${CMAKE_C_COMPILER}"
 set(ARCH "${ARCH_INTERNAL}" CACHE STRING "The target architecture")
 message("Target architecture: ${ARCH}")
 
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/core)
 set(self_src_includes
     "${CMAKE_BINARY_DIR}/src"
     "${CMAKE_SOURCE_DIR}/src"
@@ -114,7 +116,12 @@ include(cmake/codegen.cmake)
 add_subdirectory(codegen)
 
 # Run codegen required by self::src
-codegen(as_tuple ARGS "max_fields=16" OUTPUT "src/core/as_tuple.cg.hpp")
+codegen(as_tuple
+    ARGS "max_fields=16" "out=${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
+    OUTPUT "${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
+)
+
+add_subdirectory(src)
 
 if(ENABLE_TESTS)
     add_subdirectory(tests)

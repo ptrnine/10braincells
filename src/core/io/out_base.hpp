@@ -76,6 +76,12 @@ public:
         (write(data), ...);
     }
 
+    /* XXX: thats can be dangerous... */
+    template <size_t N> requires (N >= 1)
+    void write(const char(&data)[N]) {
+        write(std::span{data, N - 1});
+    }
+
     void flush() {
         if (pos) {
             auto wrote = this->handle_write(buff, pos);

@@ -28,8 +28,8 @@ struct args_t {
                 );
                 return;
             }
-            else {
-                out_path = arg;
+            else if (arg.starts_with("out="sv)) {
+                out_path = arg.substr(4);
             }
 
             cmdline.push_back(arg);
