@@ -9,6 +9,7 @@
 #include <core/exception.hpp>
 #include <core/traits/remove_const.hpp>
 #include <core/traits/remove_ptr.hpp>
+#include <core/traits/remove_ref.hpp>
 
 namespace core
 {
@@ -106,7 +107,7 @@ constexpr const T& from_byteview(const U& data) {
 template <size_t S>
 class byteview {
 public:
-    template <typename T>
+    template <typename T> requires trivial<remove_const_ref<T>>
     constexpr byteview(T&& data): p((const char*)&data) {}
 
     [[nodiscard]]
