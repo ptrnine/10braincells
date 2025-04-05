@@ -4,7 +4,6 @@
 #include <unistd.h>
 
 #include <core/finalizer.hpp>
-#include <net/transferable.hpp>
 #include <net/net_error.hpp>
 #include <net/full_addr_any.hpp>
 
@@ -111,9 +110,9 @@ public:
                         sizeof(destination.native()));
     }
 
-    ssize_t send(const full_addr_any& destination, const transferable auto&& transferable_obj) const noexcept {
-        return send(destination, transferable_obj.as_bytes());
-    }
+    //ssize_t send(const full_addr_any& destination, const transferable auto&& transferable_obj) const noexcept {
+    //    return send(destination, transferable_obj.as_bytes());
+    //}
 
     struct recv_result {
         full_addr_any src;
