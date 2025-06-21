@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include <grx/vk/types.hpp>
+#include <grx/vk/types.cg.hpp>
 
 namespace vk {
 struct version {

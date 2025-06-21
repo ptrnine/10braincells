@@ -139,8 +139,8 @@ struct enum_class {
                   "            res.append(\" | \");\n"
                   "        }\n"
                   "    }\n"
-                  "    if (res.size() > 2)\n"
-                  "        res.resize(res.size() - 2);\n"
+                  "    if (res.size() > 3)\n"
+                  "        res.resize(res.size() - 3);\n"
                   "    return res;\n"
                   "}\n" |
                   replacer);

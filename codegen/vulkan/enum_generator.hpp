@@ -215,7 +215,7 @@ auto generate_flags_header(const pugi::xml_node& registry, auto&& out) {
               "#include <core/tuple.hpp>\n"
               "#include <core/array.hpp>\n"
               "\n"
-              "#include <grx/vk/types.hpp>\n"
+              "#include <grx/vk/types.cg.hpp>\n"
               "\n"
               "namespace vk {\n"
               "namespace details {\n"

@@ -88,8 +88,11 @@ inline std::vector<function_type> parse_commands(const pugi::xml_node& registry)
         func.return_type = def.type;
         func.native      = proto_name_xml.text().as_string();
 
-        for (auto param : command_xml.children("param"))
-            func.args.push_back(parse_arg(param));
+        for (auto param : command_xml.children("param")) {
+            if (auto api = param.attribute("api"); !api || api.value() == std::string_view("vulkan")) {
+                func.args.push_back(parse_arg(param));
+            }
+        }
 
         name_to_idx.emplace(func.native, idx++);
         res.push_back(core::mov(func));
@@ -120,8 +123,8 @@ inline void generate_commands_header(const pugi::xml_node& registry, auto&& out)
               "\n"
               "#include <core/meta/type.hpp>\n"
               "#include <core/moveonly_trivial.hpp>\n"
+              "#include <grx/vk/structs.cg.hpp>\n"
               "#include <grx/vk/result.hpp>\n"
-              "#include <grx/vk/structs.hpp>\n"
               "#include <grx/vk/version.hpp>\n"
               "\n"
               "namespace vk::cmd {\n");

@@ -79,11 +79,19 @@ inline std::string transform_type(const std::string& type, bool use_namespace = 
     }
     if (t.ends_with("_flag_bits_khr")) {
         t.resize(t.size() - (sizeof("_flag_bits_khr") - 1));
-        t += "_flags_khr";
+        t += "_khr_flags";
     }
     if (t.ends_with("_flag_bits_ext")) {
         t.resize(t.size() - (sizeof("_flag_bits_ext") - 1));
-        t += "_flags_ext";
+        t += "_ext_flags";
+    }
+    if (t.ends_with("_flags_khr")) {
+        t.resize(t.size() - (sizeof("_flags_khr") - 1));
+        t += "_khr_flags";
+    }
+    if (t.ends_with("_flags_ext")) {
+        t.resize(t.size() - (sizeof("_flags_ext") - 1));
+        t += "_ext_flags";
     }
 
     return t;

@@ -4,10 +4,14 @@
 
 #include <vector>
 
+#include <grx/vk/extension_defines.hpp>
+
 #include <core/opt.hpp>
 #include <core/string_builder.hpp>
-#include <grx/vk/commands.hpp>
+#include <grx/vk/commands.cg.hpp>
 #include <grx/vk/result.hpp>
+
+#include <grx/vk/logging.hpp>
 
 namespace vk
 {
@@ -50,13 +54,12 @@ public:
     std::vector<layer_properties> layers() const {
         u32 count;
         _enumerate_instance_layer_properties.call(&count, nullptr);
-        std::vector<layer_properties> res;
+        std::vector<layer_properties> res{count};
         _enumerate_instance_layer_properties.call(&count, res.data());
         return res;
     }
 
-    auto create_instance(const instance_create_info&     create_info,
-                         core::opt<allocation_callbacks> allocator = core::null) const;
+    auto create_instance(const instance_create_info& create_info, log_level log_level = log_level::debug, core::opt<allocation_callbacks> allocator = core::null) const;
 
     auto create_instance_raw(const instance_create_info& create_info,
                              const allocation_callbacks* allocator = nullptr) const {

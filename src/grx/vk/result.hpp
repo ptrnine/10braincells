@@ -3,12 +3,12 @@
 #include <core/traits/remove_cvref.hpp>
 #include <core/traits/invoke.hpp>
 
-#include <grx/vk/enums.hpp>
+#include <grx/vk/enums.cg.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
 namespace vk {
-class result_error : core::exception {
+class result_error : public core::exception {
 public:
     result_error(vk::result irc): rc(irc) {}
 
@@ -21,7 +21,7 @@ private:
 };
 
 template <typename T, auto success_codes, auto error_codes>
-struct result_t {
+struct [[nodiscard("Result should be processed")]] result_t {
     constexpr bool ok() const {
         for (auto code : success_codes)
             if (code == rc)
@@ -63,12 +63,22 @@ struct result_t {
 };
 
 template <auto success_codes, auto error_codes>
-struct result_t<void, success_codes, error_codes> {
+struct [[nodiscard("Result should be processed")]] result_t<void, success_codes, error_codes> {
     constexpr bool ok() const {
         for (auto code : success_codes)
             if (code == rc)
                 return true;
         return false;
+    }
+
+    constexpr void throws() const {
+        if (!ok())
+            throw result_error(rc);
+    }
+
+    constexpr void value() const {
+        if (!ok())
+            throw result_error(rc);
     }
 
     explicit constexpr operator bool() const {

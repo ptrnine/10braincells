@@ -116,12 +116,13 @@ auto parse_typedefs(const pugi::xml_node& registry, const std::set<std::string>&
                     transform_type(t.attribute("name").value()),
                     transform_type(alias_attr.value()),
                 });
-            else
+            else {
                 res.push_back(typedef_gen{
                     transform_type(type.text().as_string()),
                     "",
                     true,
                 });
+            }
         }
         else if (category == "bitmask" && !t.attribute("alias")) {
             auto type = transform_type(t.child("type").text().as_string());
@@ -136,10 +137,7 @@ auto parse_typedefs(const pugi::xml_node& registry, const std::set<std::string>&
             }
 
             if (flag_names.find(flag_name) == flag_names.end()) {
-                res.push_back(typedef_gen{
-                    transform_type(name),
-                    transform_type(type),
-                });
+                res.push_back(typedef_gen{name, type});
             }
         }
     }
@@ -181,8 +179,8 @@ void generate_types_header(const pugi::xml_node& registry, auto&& out) {
 void generate_function_types_header(const pugi::xml_node& registry, auto&& out) {
     out.write("#pragma once\n"
               "\n"
-              "#include <grx/vk/types.hpp>\n"
-              "#include <grx/vk/enums.hpp>\n"
+              "#include <grx/vk/types.cg.hpp>\n"
+              "#include <grx/vk/enums.cg.hpp>\n"
               "\n"
               "namespace vk\n"
               "{\n");

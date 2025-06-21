@@ -16,6 +16,13 @@ struct function_cpp_arg {
     std::string bind_arg;
     std::string bind_size;
     std::string default_val;
+    bool need_tmp = false;
+    bool calculate_size = false;
+    std::string length_calc;
+
+    std::string get_name() const {
+        return need_tmp ? "tmp" + name : name;
+    }
 };
 
 struct function_arg {
@@ -63,11 +70,25 @@ struct function_cpp_args {
         throw function_arg_not_found{"c-arg " + cname};
     }
 
-    std::vector<std::string> arg_defs(const std::set<std::string>& skip_args = {}) const {
+    std::vector<std::string> arg_defs(const std::set<std::string>& skip_args = {}, bool print_defaults = true) const {
         std::vector<std::string> res;
         for (auto&& arg : args) {
-            if (!skip_args.contains(arg.name))
+            if (!skip_args.contains(arg.name)) {
                 res.push_back(arg.type + " " + arg.name);
+                if (print_defaults && !arg.default_val.empty()) {
+                    res.back() += " = " + arg.default_val;
+                }
+            }
+        }
+        return res;
+    }
+
+    std::vector<std::string> arg_names(const std::set<std::string>& skip_args = {}) const {
+        std::vector<std::string> res;
+        for (auto&& arg : args) {
+            if (!skip_args.contains(arg.name)) {
+                res.push_back(arg.name);
+            }
         }
         return res;
     }
@@ -79,6 +100,8 @@ struct function_cpp_args {
 inline function_cpp_args cppify_args(std::span<const function_arg> args) {
     function_cpp_args res;
 
+    std::set<std::string> remove_ints;
+
     for (auto&& arg : args) {
         if (!arg.type.starts_with("const ") && arg.type.ends_with("*") && res.result.bind_size != arg.name) {
             res.result.name     = arg.name;
@@ -88,6 +111,13 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
             if (!arg.length_arg.empty()) {
                 res.result.bind_size = arg.length_arg;
                 res.result.type = "std::vector<" + res.result.type + ">";
+                if (res.result.bind_size.contains("->")) {
+                    auto length = res.result.bind_size;
+                    length.replace(length.find("->"), 2, ".");
+                    res.result.length_calc = length;
+                }
+            } else {
+                res.result.calculate_size = true;
             }
         }
         else if (arg.type.starts_with("const ") && arg.type.ends_with("*")) {
@@ -108,9 +138,18 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
             else {
                 a.type = arg.type;
                 drop_postfix(a.type, "*");
-                a.type += '&';
                 a.name     = arg.name;
                 a.bind_arg = arg.name;
+
+                if (!arg.length_arg.empty()) {
+                    remove_ints.emplace(arg.length_arg);
+                    a.type = "std::span<" + a.type + ">";
+                    a.bind_size = arg.length_arg;
+                    //res.result.calculate_size = false;
+                    res.result.length_calc = a.name + ".size()";
+                } else {
+                    a.type += '&';
+                }
             }
         }
         else {
@@ -120,6 +159,10 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
             a.name     = arg.name;
             a.bind_arg = arg.name;
         }
+    }
+
+    for (auto&& arg : remove_ints) {
+        std::erase_if(res.args, [&](const function_cpp_arg& a) { return a.name == arg; });
     }
 
     return res;
@@ -263,7 +306,7 @@ pass_cpp_args_to_c(const function_type& cfunc, const function_cpp_args& args, bo
             if (arg.is_result)
                 result.push_back("&count");
             else
-                result.push_back(arg.arg->name + ".size()");
+                result.push_back("core::u32(" + arg.arg->get_name() + ".size())");
         }
         else {
             if (arg.is_result) {
@@ -279,9 +322,11 @@ pass_cpp_args_to_c(const function_type& cfunc, const function_cpp_args& args, bo
             }
             else {
                 if (arg.arg->type.ends_with('&') && carg.type.ends_with('*'))
-                    result.push_back("&" + arg.arg->name);
+                    result.push_back("&" + arg.arg->get_name());
+                else if (arg.arg->type.starts_with("std::span"))
+                    result.push_back(arg.arg->get_name() + ".data()");
                 else
-                    result.push_back(arg.arg->name);
+                    result.push_back(arg.arg->get_name());
             }
         }
     }

@@ -7,9 +7,10 @@
 #include <codegen/vulkan/types.hpp>
 #include <util/log.hpp>
 
-namespace cg::vk
-{
-inline auto parse_structs(const pugi::xml_node& registry) {
+namespace cg::vk {
+inline auto parse_structs(const pugi::xml_node&        registry,
+                          const std::set<std::string>& gen_setter,
+                          const std::set<std::string>& init_with_zeros) {
     std::multimap<size_t, struct_gen> structs;
     std::map<std::string, size_t>     name_to_idx;
 
@@ -26,6 +27,8 @@ inline auto parse_structs(const pugi::xml_node& registry) {
             struct_res.alias = transform_type(alias_attr.value());
         }
         else {
+            bool init_zeros = init_with_zeros.contains(struct_res.name);
+
             std::set<std::string> same_type_and_name;
             for (auto member : t.children("member")) {
                 /* Skip api="vulkan" */
@@ -52,12 +55,20 @@ inline auto parse_structs(const pugi::xml_node& registry) {
                 if (field.type == "u32" && field.name.ends_with("_version"))
                     field.type = "version_raw";
 
+                if (init_zeros) {
+                    field.value = "0";
+                }
+
                 struct_res.fields.push_back(core::mov(field));
             }
         }
 
-        if (struct_res.name == "instance_create_info") {
-            struct_res.methods.push_back("static constexpr auto pass(auto&&... args);");
+        if (gen_setter.contains(struct_res.name)) {
+            struct_res.methods.push_back("static constexpr auto make(auto&&... args) {\n"
+                                         "    " + struct_res.name + " result{};\n"
+                                         "    (args.visit(result), ...);\n"
+                                         "    return result;\n"
+                                         "}\n");
         }
 
         auto name = struct_res.name;
@@ -124,18 +135,21 @@ inline auto parse_structs(const pugi::xml_node& registry) {
     return result;
 }
 
-inline void generate_structs_header(const pugi::xml_node& registry, auto&& out) {
+inline void generate_structs_header(const pugi::xml_node&        registry,
+                                    const std::set<std::string>& gen_setter,
+                                    const std::set<std::string>& init_with_zeros,
+                                    auto&&                       out) {
     out.write("#pragma once\n"
               "\n"
-              "#include <grx/vk/constants.hpp>\n"
-              "#include <grx/vk/enums.hpp>\n"
-              "#include <grx/vk/flags.hpp>\n"
-              "#include <grx/vk/types.hpp>\n"
-              "#include <grx/vk/function_types.hpp>\n"
+              "#include <grx/vk/constants.cg.hpp>\n"
+              "#include <grx/vk/enums.cg.hpp>\n"
+              "#include <grx/vk/flags.cg.hpp>\n"
+              "#include <grx/vk/types.cg.hpp>\n"
+              "#include <grx/vk/function_types.cg.hpp>\n"
               "#include <grx/vk/version.hpp>\n"
               "\n"
               "namespace vk {\n");
-    for (auto&& s : cg::vk::parse_structs(registry)) {
+    for (auto&& s : cg::vk::parse_structs(registry, gen_setter, init_with_zeros)) {
         s.generate(out);
         out.write("\n");
     }
