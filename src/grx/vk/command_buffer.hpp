@@ -52,4 +52,63 @@ private:
 auto device_t::allocate_command_buffers(const vk::command_buffer_allocate_info& allocate_info) const {
     return command_buffer_store_t{*this, allocate_info.command_pool, allocate_command_buffers_raw(allocate_info).value()};
 }
+
+class with_buffer {
+public:
+    with_buffer(command_buffer_t buffer, core::opt<command_buffer_reset_flags> reset = {}, const vk::command_buffer_begin_info& begin_info = {}):
+        buff(buffer) {
+        if (reset) {
+            buff.reset(*reset).throws();
+        }
+        buff.begin(begin_info).throws();
+    }
+
+    with_buffer(with_buffer&&) = delete;
+    with_buffer& operator=(with_buffer&&) = delete;
+
+    ~with_buffer() noexcept(false) {
+        buff.end().throws();
+    }
+
+    command_buffer_t& operator*() {
+        return buff;
+    }
+
+    command_buffer_t* operator->() {
+        return &buff;
+    }
+
+    constexpr operator bool() const {
+        return true;
+    }
+
+private:
+    command_buffer_t buff;
+};
+
+class with_render_pass {
+public:
+    with_render_pass(with_buffer& buffer, const vk::render_pass_begin_info& begin_info, vk::subpass_contents contents): buff(buffer) {
+        buff->cmd_begin_render_pass(begin_info, contents);
+    }
+
+    ~with_render_pass() {
+        buff->cmd_end_render_pass();
+    }
+
+    with_buffer& operator*() {
+        return buff;
+    }
+
+    with_buffer* operator->() {
+        return &buff;
+    }
+
+    constexpr operator bool() const {
+        return true;
+    }
+
+private:
+    with_buffer& buff;
+};
 } // namespace vk

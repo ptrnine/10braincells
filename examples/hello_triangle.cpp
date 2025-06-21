@@ -343,33 +343,33 @@ int main() {
         auto image_index = swapchain.acquire_next_image(image_available_semaphores[frame]).value();
 
         /* Render pass */
-        command_buffers[frame].reset({}).throws();
-        command_buffers[frame].begin({}).throws();
-        command_buffers[frame].cmd_begin_render_pass(
-            vk::info::render_pass_begin{
-                .render_pass  = render_pass,
-                .framebuffer  = framebuffers[image_index],
-                .render_area  = {.offset = {.x = 0, .y = 0}, .extent = swapchain_extent},
-                .clear_values = std::vector{vk::clear_color<float>{0.f, 0.f, 0.f, 0.f}},
-            },
-            vk::subpass_contents::_inline
-        );
-        command_buffers[frame].cmd_bind_pipeline(vk::pipeline_bind_point::graphics, graphics_pipeline);
-        command_buffers[frame].cmd_set_viewport(
-            0,
-            array{vk::viewport{
-                .x         = 0.f,
-                .y         = 0.f,
-                .width     = float(swapchain_extent.width),
-                .height    = float(swapchain_extent.height),
-                .min_depth = 0.f,
-                .max_depth = 1.f,
-            }}
-        );
-        command_buffers[frame].cmd_set_scissor(0, array{vk::rect2d{.offset = {.x = 0, .y = 0}, .extent = swapchain_extent}});
-        command_buffers[frame].cmd_draw(3, 1, 0, 0);
-        command_buffers[frame].cmd_end_render_pass();
-        command_buffers[frame].end().throws();
+        if (auto buff = vk::with_buffer(command_buffers[frame], vk::command_buffer_reset_flag{})) {
+            auto pass_guard = vk::with_render_pass(
+                buff,
+                vk::info::render_pass_begin{
+                    .render_pass  = render_pass,
+                    .framebuffer  = framebuffers[image_index],
+                    .render_area  = {.offset = {.x = 0, .y = 0}, .extent = swapchain_extent},
+                    .clear_values = std::vector{vk::clear_color<float>{0.f, 0.f, 0.f, 0.f}},
+                },
+                vk::subpass_contents::_inline
+            );
+
+            buff->cmd_bind_pipeline(vk::pipeline_bind_point::graphics, graphics_pipeline);
+            buff->cmd_set_viewport(
+                0,
+                array{vk::viewport{
+                    .x         = 0.f,
+                    .y         = 0.f,
+                    .width     = float(swapchain_extent.width),
+                    .height    = float(swapchain_extent.height),
+                    .min_depth = 0.f,
+                    .max_depth = 1.f,
+                }}
+            );
+            buff->cmd_set_scissor(0, array{vk::rect2d{.offset = {.x = 0, .y = 0}, .extent = swapchain_extent}});
+            buff->cmd_draw(3, 1, 0, 0);
+        }
 
         /* Queue submit */
         graphics_queue
