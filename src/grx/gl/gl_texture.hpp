@@ -6,7 +6,7 @@
 #include <core/exception.hpp>
 #include <core/moveonly_trivial.hpp>
 
-#include <grx/texture.hpp>
+#include <grx/image.hpp>
 
 namespace grx::gl {
 class gl_texture_exception : public core::exception {};

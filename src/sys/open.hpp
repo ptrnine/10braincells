@@ -10,7 +10,7 @@
 namespace sys
 {
 template <typename... Ts>
-    requires(core::null_term_string<core::remove_cvref<Ts>> || ... || false) &&
+    requires(core::null_term_string<core::decay<Ts>> || ... || false) &&
             (core::convertible_to<Ts, openflags> || ... || false)
 inline auto openat(fd_t dirfd, Ts&&... args) {
     const char* pathname;

@@ -3,6 +3,8 @@
 #include <core/begin_end.hpp>
 #include <core/int_const.hpp>
 #include <core/meta/type_list.hpp>
+#include <core/ranges/index.hpp>
+#include <core/ranges/range.hpp>
 #include <core/traits/declval.hpp>
 #include <core/tuple.hpp>
 #include <core/utility/int_seq.hpp>
@@ -194,6 +196,16 @@ struct zip_view {
     zip_iterator<decltype(core::begin(declval<const Ts&>()))...>        begins;
     zip_iterator_sentinel<decltype(core::end(declval<const Ts&>()))...> ends;
 };
+
+auto with_index(input_range auto&& container) {
+    return zip{
+        range_holder<index_iterator, index_iterator>{
+            index_iterator{0},
+            index_iterator{core::limits<size_t>::max()},
+        },
+        fwd(container),
+    };
+}
 } // namespace core
 
 #undef fwd

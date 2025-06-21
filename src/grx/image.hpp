@@ -46,10 +46,10 @@ inline vec2<T> clamp_mipmap_size(vec2<T> value) {
 }
 
 template <typename T> requires (core::trivial_ctor<T> && core::trivial_dtor<T>)
-class texture_span;
+class image_span;
 
     template <typename T> requires (core::trivial_ctor<T> && core::trivial_dtor<T>)
-class texture;
+class image;
 
 class stbi_write_image_error : public core::exception {
 public:
@@ -89,7 +89,7 @@ private:
 
 namespace details {
     template <typename T>
-    class texture_base {
+    class image_base {
     public:
         static constexpr stbir_pixel_layout stbi_pixel_layout() {
             switch (components_count<T>()) {
@@ -156,50 +156,50 @@ namespace details {
         }
     };
 
-    struct texture_pixel_iterator_sentinel {};
+    struct image_pixel_iterator_sentinel {};
 
     template <typename T>
-    class texture_pixel_iterator {
+    class image_pixel_iterator {
     public:
-        texture_pixel_iterator(T* data, vec2u left_top, vec2u size, vec2u owner_size):
+        image_pixel_iterator(T* data, vec2u left_top, vec2u size, vec2u owner_size):
             _data(data), _left_top(left_top), _owner_size(owner_size), _current(size.v) {}
 
-        texture_pixel_iterator& operator++() {
+        image_pixel_iterator& operator++() {
             ++_current;
             return *this;
         }
 
-        texture_pixel_iterator operator++(int) {
+        image_pixel_iterator operator++(int) {
             auto res = *this;
             ++(*this);
             return res;
         }
 
-        texture_pixel_iterator& operator--() {
+        image_pixel_iterator& operator--() {
             --_current;
             return *this;
         }
 
-        texture_pixel_iterator operator--(int) {
+        image_pixel_iterator operator--(int) {
             auto res = *this;
             --(*this);
             return res;
         }
 
-        bool operator==(const texture_pixel_iterator& i) const {
+        bool operator==(const image_pixel_iterator& i) const {
             return _current == i._current && _data == i._data && _left_top == i._left_top &&
                    _owner_size == i._owner_size;
         }
 
-        bool operator!=(const texture_pixel_iterator& i) const {
+        bool operator!=(const image_pixel_iterator& i) const {
             return !(*this == i);
         }
 
-        bool operator==(texture_pixel_iterator_sentinel) const {
+        bool operator==(image_pixel_iterator_sentinel) const {
             return _current == util::dimensional_index_iterator_sentinel{};
         }
 
-        bool operator!=(texture_pixel_iterator_sentinel) const {
+        bool operator!=(image_pixel_iterator_sentinel) const {
             return _current != util::dimensional_index_iterator_sentinel{};
         }
 
@@ -232,16 +232,16 @@ namespace details {
     };
 
     template <typename T>
-    class texture_pixel_span {
+    class image_pixel_span {
     public:
-        texture_pixel_span(T* data, vec2u left_top, vec2u size, vec2u owner_size):
+        image_pixel_span(T* data, vec2u left_top, vec2u size, vec2u owner_size):
             _b(data, left_top, size, owner_size) {}
 
         auto begin() const {
             return _b;
         }
 
-        texture_pixel_iterator_sentinel end() const {
+        image_pixel_iterator_sentinel end() const {
             return {};
         }
 
@@ -258,7 +258,7 @@ namespace details {
         }
 
     private:
-        texture_pixel_iterator<T> _b;
+        image_pixel_iterator<T> _b;
     };
 
     void stbi_write_callback(void* byte_vector, void* data, int size) {
@@ -269,11 +269,11 @@ namespace details {
     }
 
     template <typename T>
-    class texture_span_u8_stbi : public texture_base<T> {
+    class image_span_u8_stbi : public image_base<T> {
     public:
         auto to_ldr(this auto& it, float gamma = 1.f) {
             using pixel_t = component_type_cast<u8, T>;
-            texture<pixel_t> result{it.size(), it.mipmaps_count()};
+            image<pixel_t> result{it.size(), it.mipmaps_count()};
 
             for (auto&& [dst, src] : core::zip(result.pixels(), it.pixels()))
                 dst = pixel_t(grayscale<T>(255) * pow(src, 1.f / gamma));
@@ -284,7 +284,7 @@ namespace details {
 
         auto to_ldr(this auto& it, float gamma, float exposure) {
             using pixel_t = component_type_cast<u8, T>;
-            texture<pixel_t> result{it.size(), it.mipmaps_count()};
+            image<pixel_t> result{it.size(), it.mipmaps_count()};
 
             for (auto&& [dst, src] : core::zip(result.pixels(), it.pixels())) {
                 auto color = grayscale<T>(1) - exp(-src * exposure);
@@ -297,7 +297,7 @@ namespace details {
     };
 
     template <have_component_type<u8> T>
-    class texture_span_u8_stbi<T> : public texture_base<T> {
+    class image_span_u8_stbi<T> : public image_base<T> {
     public:
         std::vector<core::byte> to_png(this const auto& it) {
             std::vector<byte> result;
@@ -318,16 +318,16 @@ namespace details {
 
     /* TODO: handle non-vec types (single float/u8) */
     template <typename T>
-    class texture_span_stbi : public texture_span_u8_stbi<T> {
+    class image_span_stbi : public image_span_u8_stbi<T> {
     public:
-        using base = texture_base<T>;
+        using base = image_base<T>;
 
         auto pixels(this auto&& it) {
-            return texture_pixel_span{it.data(), it.left_top(), it.size(), it.owner_size()};
+            return image_pixel_span{it.data(), it.left_top(), it.size(), it.owner_size()};
         }
 
         auto crop(this auto&& it, vec2u left_top, vec2u size) {
-            return texture_span{
+            return image_span{
                 it.data(),
                 it.left_top() + left_top,
                 size,
@@ -336,7 +336,7 @@ namespace details {
         }
 
         auto crop(this auto&& it, vec2u left_top) {
-            return texture_span{
+            return image_span{
                 it.data(),
                 it.left_top() + left_top,
                 it.size() - left_top,
@@ -376,7 +376,7 @@ namespace details {
                 base::generate_mipmaps(output, new_size, new_mipmaps_count);
         }
 
-        texture<T> resized(this const auto& it, const vec2u& new_size, size_t new_mipmaps_count = 0) {
+        image<T> resized(this const auto& it, const vec2u& new_size, size_t new_mipmaps_count = 0) {
             auto mipmaps_region_len = base::mipmaps_region_len(new_size, new_mipmaps_count);
             auto output_pixels      = malloc_boxed<T[]>(new_size.x() * new_size.y() + mipmaps_region_len);
 
@@ -392,12 +392,12 @@ namespace details {
     };
 
     template <typename T>
-    class texture_stbi : public texture_span_stbi<T> {};
+    class image_stbi : public image_span_stbi<T> {};
 
     template <have_component_type<u8> T>
-    class texture_stbi<T> : public texture_span_stbi<T> {
+    class image_stbi<T> : public image_span_stbi<T> {
     public:
-        using base = texture_base<T>;
+        using base = image_base<T>;
 
         std::vector<core::byte> to_tga(this const auto& it) {
             std::vector<byte> result;
@@ -429,7 +429,7 @@ namespace details {
             return result;
         }
 
-        static texture<T> from_image(std::span<const core::byte> image, uint mipmaps_count = 0) {
+        static image<T> from_image(std::span<const core::byte> image, uint mipmaps_count = 0) {
             constexpr int type = [] {
                 switch (components_count<T>()) {
                 case 1:
@@ -457,7 +457,7 @@ namespace details {
             };
 
             if (!result)
-                throw stbi_read_image_error("Cannot convert image to texture");
+                throw stbi_read_image_error("Cannot convert image to image");
 
             if (comp_count != components_count<T>())
                 throw stbi_read_image_error(
@@ -477,9 +477,9 @@ namespace details {
 }
 
 template <typename T> requires (core::trivial_ctor<T> && core::trivial_dtor<T>)
-class texture_span : public details::texture_span_stbi<T> {
+class image_span : public details::image_span_stbi<T> {
 public:
-    constexpr texture_span(T* start, vec2u left_top, vec2u size, vec2u owner_size):
+    constexpr image_span(T* start, vec2u left_top, vec2u size, vec2u owner_size):
         _start(start), _left_top(left_top), _size(size), _owner_size(owner_size) {}
 
     constexpr auto data(this auto& it) {
@@ -505,13 +505,13 @@ private:
     vec2u _owner_size;
 };
 
-struct texture_mipmap_iterator_sentinel {};
+struct image_mipmap_iterator_sentinel {};
 
 template <typename T>
-class texture_mipmap_iterator {
+class image_mipmap_iterator {
 public:
-    /* mipmaps_count + 1 because we take the whole texture into account */
-    texture_mipmap_iterator(T* data, vec2u size, uint start_mipmap, uint mipmaps_count):
+    /* mipmaps_count + 1 because we take the whole image into account */
+    image_mipmap_iterator(T* data, vec2u size, uint start_mipmap, uint mipmaps_count):
         _start(data), _size(size), _mipmaps_count(mipmaps_count + 1) {
         if (start_mipmap > _mipmaps_count - 1)
             start_mipmap = _mipmaps_count - 1;
@@ -520,26 +520,26 @@ public:
             next_mipmap();
     }
 
-    texture_mipmap_iterator& operator++() {
+    image_mipmap_iterator& operator++() {
         next_mipmap();
         return *this;
     }
 
-    texture_mipmap_iterator operator++(int) {
+    image_mipmap_iterator operator++(int) {
         auto res = *this;
         next_mipmap();
         return res;
     }
 
-    bool operator==(texture_mipmap_iterator_sentinel) const {
+    bool operator==(image_mipmap_iterator_sentinel) const {
         return _current_mipmap == _mipmaps_count;
     }
 
-    bool operator!=(texture_mipmap_iterator_sentinel sentinel) const {
+    bool operator!=(image_mipmap_iterator_sentinel sentinel) const {
         return !(*this == sentinel);
     }
 
-    texture_span<T> operator*() const {
+    image_span<T> operator*() const {
         return {_start, {0, 0}, _size, _size};
     }
 
@@ -562,38 +562,38 @@ private:
 };
 
 template <typename T>
-class texture_mipmap_span {
+class image_mipmap_span {
 public:
-    texture_mipmap_span(T* data, vec2u size, uint start_mipmap, uint mipmaps_count):
+    image_mipmap_span(T* data, vec2u size, uint start_mipmap, uint mipmaps_count):
         _b(data, size, start_mipmap, mipmaps_count) {}
 
-    texture_mipmap_iterator<T> begin() const {
+    image_mipmap_iterator<T> begin() const {
         return _b;
     }
 
-    texture_mipmap_iterator_sentinel end() const {
+    image_mipmap_iterator_sentinel end() const {
         return {};
     }
 
 private:
-    texture_mipmap_iterator<T> _b;
+    image_mipmap_iterator<T> _b;
 };
 
 template <typename T> requires (core::trivial_ctor<T> && core::trivial_dtor<T>)
-class texture : public details::texture_stbi<T> {
+class image : public details::image_stbi<T> {
 public:
-    using base = details::texture_base<T>;
+    using base = details::image_base<T>;
 
-    friend class details::texture_span_stbi<T>;
-    friend class details::texture_stbi<T>;
+    friend class details::image_span_stbi<T>;
+    friend class details::image_stbi<T>;
 
-    texture(const vec2u& size, uint mipmaps_count = 0):
+    image(const vec2u& size, uint mipmaps_count = 0):
         _size(vec2<u32>{size}),
         _mipmaps_count(mipmaps_count),
         _overal_len(size.x() * size.y() + base::mipmaps_region_len(size, mipmaps_count)),
         _pixels(malloc_boxed<T[]>(_overal_len)) {}
 
-    texture(const texture& t):
+    image(const image& t):
         _size(t._size),
         _mipmaps_count(t._mipmaps_count),
         _overal_len(t._overal_len),
@@ -601,7 +601,7 @@ public:
         std::memcpy(_pixels.get(), t._pixels.get(), _overal_len * sizeof(T));
     }
 
-    texture& operator=(const texture& t) {
+    image& operator=(const image& t) {
         if (&t == this)
             return *this;
 
@@ -615,8 +615,8 @@ public:
         return *this;
     }
 
-    texture(texture&&) noexcept = default;
-    texture& operator=(texture&&) noexcept = default;
+    image(image&&) noexcept = default;
+    image& operator=(image&&) noexcept = default;
 
     auto begin(this auto& it) {
         if constexpr (core::is_const<core::remove_ref<decltype(it)>>)
@@ -655,18 +655,18 @@ public:
         base::generate_mipmaps(_pixels.get(), _size, _mipmaps_count);
     }
 
-    texture_mipmap_span<T> mipmaps(this auto& it, bool skip_whole_texture = false) {
-        return {it.data(), it.size(), skip_whole_texture ? 1 : 0, it.mipmaps_count()};
+    image_mipmap_span<T> mipmaps(this auto& it, bool skip_whole_image = false) {
+        return {it.data(), it.size(), skip_whole_image ? 1 : 0, it.mipmaps_count()};
     }
 
-    texture<T> rendered_with_mipmaps() const {
+    image<T> rendered_with_mipmaps() const {
         if (_mipmaps_count == 0)
             return *this;
 
         auto mipmap_size = clamp_mipmap_size(_size / 2);
         auto new_size = _size + vec2u{mipmap_size.x(), 0};
 
-        texture<T> result{new_size};
+        image<T> result{new_size};
 
         for (auto&& [dst, src] : core::zip{result.crop({0, 0}, _size).pixels(), this->pixels()})
             dst = src;
@@ -685,7 +685,7 @@ public:
     }
 
 private:
-    texture(malloc_box<T[]>&& pixels, const vec2u& size, size_t mipmaps_count, size_t overal_len):
+    image(malloc_box<T[]>&& pixels, const vec2u& size, size_t mipmaps_count, size_t overal_len):
         _pixels(core::mov(pixels)),
         _size(vec2<u32>(size)),
         _mipmaps_count(u32(mipmaps_count)),
@@ -697,13 +697,13 @@ private:
     malloc_box<T[]> _pixels;
 };
 
-using texture_g    = texture<clr8_g>;
-using texture_ga   = texture<clr8_ga>;
-using texture_rgb  = texture<clr8_rgb>;
-using texture_rgba = texture<clr8_rgba>;
+using image_g    = image<clr8_g>;
+using image_ga   = image<clr8_ga>;
+using image_rgb  = image<clr8_rgb>;
+using image_rgba = image<clr8_rgba>;
 
-using texture_hdr_g    = texture<clrf_g>;
-using texture_hdr_ga   = texture<clrf_ga>;
-using texture_hdr_rgb  = texture<clrf_rgb>;
-using texture_hdr_rgba = texture<clrf_rgba>;
+using image_hdr_g    = image<clrf_g>;
+using image_hdr_ga   = image<clrf_ga>;
+using image_hdr_rgb  = image<clrf_rgb>;
+using image_hdr_rgba = image<clrf_rgba>;
 } // namespace grx

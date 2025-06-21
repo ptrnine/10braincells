@@ -2,7 +2,6 @@
 
 #include <cstring>
 
-#include <core/array.hpp>
 #include <util/assert.hpp>
 #include <grx/basic_types.hpp>
 
@@ -28,8 +27,8 @@ struct bone_vertex {
         ASSERT(false, "Not enough bone size. Weights: {}", weights);
     }
 
-    core::array<u32, BonesPerVertex>   ids     = {0};
-    core::array<float, BonesPerVertex> weights = {0};
+    u32   ids[BonesPerVertex]     = {0};
+    float weights[BonesPerVertex] = {0};
 };
 
 using bone_vertex4 = bone_vertex<4>;

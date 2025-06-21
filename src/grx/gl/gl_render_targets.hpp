@@ -7,7 +7,6 @@
 #include <core/tuple.hpp>
 #include <core/utility/int_seq.hpp>
 #include <grx/basic_types.hpp>
-#include <grx/texture.hpp>
 #include <util/assert.hpp>
 
 namespace grx::gl

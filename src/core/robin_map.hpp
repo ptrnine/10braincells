@@ -1,5 +1,8 @@
 #pragma once
 
+
+//#define TBC_DSA_DEBUG
+
 #include <string>
 
 #include <core/array.hpp>
@@ -7,6 +10,7 @@
 #include <core/concepts/trivial_dtor.hpp>
 #include <core/construct_at.hpp>
 #include <core/exception.hpp>
+#include <core/macros.hpp>
 #include <core/traits/add_const.hpp>
 #include <core/traits/ca_traits.hpp>
 #include <core/traits/conditional.hpp>
@@ -280,47 +284,54 @@ public:
         return robin_map_iterator{it._data.data() + it.capacity()};
     }
 
+
     constexpr auto emplace(auto&& key, auto&&... args) {
         size_t idx = to_idx(key);
         size_t dist = 1;
-        //__builtin_printf("\nINDEX: %zu  dist: %zu %zu\n", idx, _data[idx].distance(), dist);
+
+        TBC_DSA_LOG("robin_map::emplace() idx: %zu bucket_dist: %zu dist: %zu\n", idx, _data[idx].distance(), dist);
+
         for (; dist != max_distance() && _data[idx].distance() >= dist; idx = next_idx(idx), ++dist) {
-            if (_data[idx].key() == key)
+            if (_data[idx].key() == key) {
+                TBC_DSA_LOG("robin_map::emplace() found bucket => idx: %zu dist: %zu\n", idx, dist);
                 return tuple{robin_map_iterator{&_data[idx]}, false};
+            }
         }
 
         static_assert(have_static_storage);
         if constexpr (have_static_storage) {
+            TBC_DSA_LOG("robin_map::emplace() static storage check => occupied: %zu capacity: %zu\n", _occupied, capacity());
             if (_occupied == capacity())
                 throw robin_map_overflow("Not enough space");
         }
 
         if (_data[idx].empty()) {
-            //__builtin_printf("\nINDEX: %zu dist: %zu\n", idx, dist);
+            TBC_DSA_LOG("robin_map::emplace() place in empty bucket => idx: %zu dist: %zu\n", idx, dist);
+
             _data[idx].init_header(u16(dist), key);
             _data[idx].construct_value(fwd(args)...);
-            //__builtin_printf("insert (%s) on pos %zu\n", _data[idx].value().data(), idx);
             ++_occupied;
             return tuple{robin_map_iterator{&_data[idx]}, true};
         }
 
+        TBC_DSA_LOG("robin_map::emplace() place instead of old => idx: %zu\n", idx);
+
         bucket_t new_bucket{u16(dist), key, fwd(args)...};
-        //__builtin_printf("swap new(%s) <-> old(%s)\n", new_bucket.value().data(), _data[idx].value().data());
         swap(new_bucket, _data[idx]);
-        //new_bucket.swap(_data[idx]);
-        //__builtin_printf("IDX: %zu\n", idx);
+
         for (size_t dist = new_bucket.distance() + 1, i = next_idx(idx);; i = next_idx(i)) {
             if (_data[i].empty()) {
-                //__builtin_printf("insert (%s) on pos %zu\n", new_bucket.value().data(), i);
+                TBC_DSA_LOG("robin_map::emplace() relocate to empty bucket => idx: %zu\n", i);
+
                 _data[i] = mov(new_bucket);
                 _data[i].set_distance(u16(dist));
                 ++_occupied;
                 return tuple{robin_map_iterator{&_data[i]}, true};
             }
             else if (_data[i].distance() < dist) {
+                TBC_DSA_LOG("robin_map::emplace() replace => idx: %zu\n", i);
+
                 swap(new_bucket, _data[i]);
-                //__builtin_printf("insert (%s) on pos %zu(%s)\n", new_bucket.value().data(), i, _data[i].value().data());
-                //new_bucket.swap(_data[i]);
                 _data[i].set_distance(dist);
                 dist = new_bucket.distance() + 1;
             }
@@ -349,11 +360,9 @@ public:
     template <typename B>
     constexpr void erase(robin_map_iterator<B> position) {
         auto idx = position.pointer() -_data.data();
-        //util::glog().warn("remove at idx: {}", idx);
         position.pointer()->destroy();
         --_occupied;
 
-        //util::glog().warn("next: {}", _data[next_idx(idx)].distance());
         for (auto next = next_idx(idx); _data[next].distance() > 1;) {
             _data[idx] = mov(_data[next]);
             _data[idx].set_distance(_data[idx].distance() - 1);
@@ -363,7 +372,7 @@ public:
     }
 
     constexpr V& operator[](auto&& key) {
-        return (*(emplace(fwd(key))[int_c<0>]))[int_c<1>];
+        return (*emplace(fwd(key))[int_c<0>])[int_c<1>];
     }
 
     constexpr auto& at(this auto&& it, const auto& key) {
@@ -376,7 +385,6 @@ public:
     constexpr auto find(this auto&& it, const auto& key) {
         for (size_t idx = it.to_idx(key), dist = 1; dist != max_distance() && it._data[idx].distance() >= dist;
              idx = it.next_idx(idx), ++dist) {
-            //__builtin_printf("bucket: %zu key: %p\n", idx, it._data[idx].key());
             if (it._data[idx].key() == key)
                 return robin_map_iterator{&it._data[idx]};
         }

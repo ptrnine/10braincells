@@ -113,15 +113,7 @@ TEST_CASE("static_ptr_map") {
         m[p + 1] = "1";
         m[p + 2] = "2";
         m[p + 3] = "3";
-
-        bool ok = false;
-        try {
-            m[p + 4] = "4";
-        }
-        catch (const robin_map_overflow&) {
-            ok = true;
-        }
-        CHECK(ok);
+        REQUIRE_THROWS_AS(m[p + 4] = "4", robin_map_overflow);
     }
 
     SECTION("find") {
