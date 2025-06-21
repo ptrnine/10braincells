@@ -1,36 +1,12 @@
-#include <core/ranges/index.hpp>
-#include <grx/vk/constants.cg.hpp>
-#include <grx/vk/device.cg.hpp>
-#include <grx/vk/enums.cg.hpp>
-#include <grx/vk/instance.hpp>
-#include <grx/vk/structs.cg.hpp>
-#include <grx/vk/surface.hpp>
-#include <grx/vk/swapchain.cg.hpp>
-#include <grx/vk/image_view.cg.hpp>
-#include <grx/vk/shader_module.cg.hpp>
-#include <grx/vk/pipeline_layout.cg.hpp>
-#include <grx/vk/pipeline.cg.hpp>
-#include <grx/vk/render_pass.cg.hpp>
-#include <grx/vk/framebuffer.cg.hpp>
-#include <grx/vk/command_pool.cg.hpp>
-#include <grx/vk/command_buffer.hpp>
-#include <grx/vk/semaphore.cg.hpp>
-#include <grx/vk/fence.cg.hpp>
-#include <grx/vk/queue.cg.hpp>
-#include <grx/vk/info.hpp>
-#include <grx/vk/arg.hpp>
-
-#include <core/ranges/to.hpp>
-#include <core/ranges/transform.hpp>
-
-#include <util/arg_parse.hpp>
-#include <util/fps_counter.hpp>
+#include <grx/vk.hpp>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <core/ranges/to.hpp>
+#include <core/ranges/transform.hpp>
 #include <core/ranges/zip.hpp>
-#include <core/io/mmap.hpp>
+#include <util/fps_counter.hpp>
 
 using namespace core;
 
