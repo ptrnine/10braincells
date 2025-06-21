@@ -8,9 +8,6 @@
 #include <grx/vk/structs.cg.hpp>
 #include <grx/vk/types.cg.hpp>
 
-#include <map>
-#include <util/assert.hpp>
-
 #include <grx/vk/lib.hpp>
 
 namespace vk {
@@ -18,17 +15,18 @@ class instance_t {
 public:
     using inst_t = core::moveonly_trivial<vk::instance, nullptr>;
 
-    instance_t(const vk_lib&                   library,
-               const instance_create_info&     create_info,
-               log_level                       log_level = log_level::debug,
-               core::opt<allocation_callbacks> allocator = core::null):
-        lib(&library), inst(init(&library, create_info, log_level, allocator)) {
+    instance_t(
+        const vk_lib& library, info::instance create_info, core::opt<allocation_callbacks> allocator = core::null
+    ):
+        lib(&library), inst(init(&library, core::mov(create_info), allocator)) {
 
         f.pass_to([&](auto&... functions) {
             load_functions(functions...);
         });
 
-        create_debug_callback(log_level);
+        if (create_info.log_severity != log_severity::off) {
+            create_debug_callback(create_info.log_severity);
+        }
     }
 
     ~instance_t() {
@@ -90,62 +88,62 @@ public:
     auto physical_devices() const;
 
 private:
-    inst_t init(const vk_lib*                   lib,
-                const instance_create_info&     create_info,
-                log_level                       log_level,
-                core::opt<allocation_callbacks> allocator) {
+    inst_t init(const vk_lib* lib, info::instance create_info, core::opt<allocation_callbacks> allocator) {
+        if (create_info.log_severity != log_severity::off) {
+            create_info.extensions.push_back("VK_EXT_debug_utils");
+            create_info.extensions.push_back("VK_EXT_debug_report");
+        }
+
         instance_create_info info = create_info;
 
-        auto debug_report_info = create_debug_utils_info(log_level);
-        if (log_level != log_level::off) {
-            R_ASSERT(info.next == nullptr);
+        auto debug_report_info = create_debug_utils_info(create_info.log_severity);
+        if (create_info.log_severity != log_severity::off) {
             info.next = &debug_report_info;
         }
 
         return lib->create_instance_raw(info, allocator ? &(*allocator) : nullptr).value();
     }
 
-    debug_utils_messenger_create_info_ext create_debug_utils_info(log_level log_level) {
+    debug_utils_messenger_create_info_ext create_debug_utils_info(log_severity log_level) {
         debug_utils_messenger_create_info_ext result{};
 
         result.message_severity = {};
         switch (log_level) {
-        case log_level::debug: result.message_severity |= debug_utils_message_severity_ext_flag::verbose_ext;
-        case log_level::info: result.message_severity |= debug_utils_message_severity_ext_flag::info_ext;
-        case log_level::performance_warning:
-        case log_level::warning: result.message_severity |= debug_utils_message_severity_ext_flag::warning_ext;
-        case log_level::error: result.message_severity |= debug_utils_message_severity_ext_flag::error_ext;
+        case log_severity::debug: result.message_severity |= debug_utils_message_severity_ext_flag::verbose_ext;
+        case log_severity::info: result.message_severity |= debug_utils_message_severity_ext_flag::info_ext;
+        case log_severity::performance_warning:
+        case log_severity::warning: result.message_severity |= debug_utils_message_severity_ext_flag::warning_ext;
+        case log_severity::error: result.message_severity |= debug_utils_message_severity_ext_flag::error_ext;
         default: break;
         }
 
         result.message_type = {};
         switch (log_level) {
-        case log_level::debug:;
-        case log_level::info: result.message_type |= debug_utils_message_type_ext_flag::validation_ext;
-        case log_level::performance_warning: result.message_type |= debug_utils_message_type_ext_flag::performance_ext;
-        case log_level::warning:
-        case log_level::error: result.message_type |= debug_utils_message_type_ext_flag::general_ext;
+        case log_severity::debug:;
+        case log_severity::info: result.message_type |= debug_utils_message_type_ext_flag::validation_ext;
+        case log_severity::performance_warning: result.message_type |= debug_utils_message_type_ext_flag::performance_ext;
+        case log_severity::warning:
+        case log_severity::error: result.message_type |= debug_utils_message_type_ext_flag::general_ext;
         default: break;
         }
 
-        util::glog().info("create debug utils callback: {} {}", result.message_severity, result.message_type);
         result.user_callback = debug_utils_callback;
 
         return result;
     }
 
-    void create_debug_callback(log_level level) {
-        if (level == log_level::off) {
+    void create_debug_callback(log_severity level) {
+        if (level == log_severity::off) {
             return;
         }
 
         debug_report_ext_flags flags = {};
         switch (level) {
-        case log_level::debug: flags |= debug_report_ext_flag::debug_ext;
-        case log_level::info: flags |= debug_report_ext_flag::information_ext;
-        case log_level::performance_warning: flags |= debug_report_ext_flag::performance_warning_ext;
-        case log_level::warning: flags |= debug_report_ext_flag::warning_ext;
-        case log_level::error: flags |= debug_report_ext_flag::error_ext;
+        case log_severity::debug: flags |= debug_report_ext_flag::debug_ext;
+        case log_severity::info: flags |= debug_report_ext_flag::information_ext;
+        case log_severity::performance_warning: flags |= debug_report_ext_flag::performance_warning_ext;
+        case log_severity::warning: flags |= debug_report_ext_flag::warning_ext;
+        case log_severity::error: flags |= debug_report_ext_flag::error_ext;
         default: break;
         }
 
@@ -301,7 +299,7 @@ namespace arg {
     } instance_flags;
 } // namespace arg
 
-auto vk_lib::create_instance(const instance_create_info& create_info, log_level log_level, core::opt<allocation_callbacks> allocator) const {
-    return instance_t{*this, create_info, log_level, allocator};
+auto vk_lib::create_instance(info::instance create_info, core::opt<allocation_callbacks> allocator) const {
+    return instance_t{*this, core::mov(create_info), allocator};
 }
 } // namespace vk

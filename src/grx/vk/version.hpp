@@ -14,6 +14,7 @@ struct version {
 struct version_raw {
     version_raw() = default;
     version_raw(u16 maj, u16 min, u16 ipatch): patch(ipatch), minor(min), major(maj), variant(0) {}
+    explicit version_raw(const version& v): version_raw(v.major, v.minor, v.patch) {}
 
     u32 patch : 12;
     u32 minor : 10;

@@ -55,8 +55,11 @@ inline auto parse_structs(const pugi::xml_node&        registry,
                 if (field.type == "u32" && field.name.ends_with("_version"))
                     field.type = "version_raw";
 
-                if (init_zeros) {
-                    field.value = "0";
+                if (init_zeros && field.value.empty()) {
+                    if (field.type.ends_with('*'))
+                        field.value = "nullptr";
+                    else
+                        field.value = "0";
                 }
 
                 struct_res.fields.push_back(core::mov(field));

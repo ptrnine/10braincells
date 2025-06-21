@@ -97,7 +97,7 @@ struct intset : int_const<Vs>... {
 
 namespace int_const_literals {
     template <char... cs>
-    constexpr auto operator"" _c() {
+    constexpr auto operator""_c() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<int>::max())
             return int_t_c<int, c>;
@@ -115,7 +115,7 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _uc() {
+    constexpr auto operator""_uc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<unsigned int>::max())
             return int_t_c<unsigned int, c>;
@@ -126,7 +126,7 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _ulc() {
+    constexpr auto operator""_ulc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<unsigned long int>::max())
             return int_t_c<unsigned long int, c>;
@@ -135,14 +135,14 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _ullc() {
+    constexpr auto operator""_ullc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<unsigned long long int>::max())
             return int_t_c<unsigned long long int, c>;
     }
 
     template <char... cs>
-    constexpr auto operator"" _lc() {
+    constexpr auto operator""_lc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<long int>::max())
             return int_t_c<long int, c>;
@@ -155,7 +155,7 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _llc() {
+    constexpr auto operator""_llc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<long long int>::max())
             return int_t_c<long long int, c>;
@@ -164,7 +164,7 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _zc() {
+    constexpr auto operator""_zc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<ssize_t>::max())
             return int_t_c<ssize_t, c>;
@@ -173,7 +173,7 @@ namespace int_const_literals {
     }
 
     template <char... cs>
-    constexpr auto operator"" _zuc() {
+    constexpr auto operator""_zuc() {
         constexpr auto c = parse_int_checked<cs...>();
         if constexpr (c <= limits<size_t>::max())
             return int_t_c<size_t, c>;

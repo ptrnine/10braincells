@@ -10,7 +10,7 @@
 #include <util/log.hpp>
 
 namespace vk {
-enum class log_level {
+enum class log_severity {
     off = 0,
     error,
     warning,

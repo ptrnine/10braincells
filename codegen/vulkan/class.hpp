@@ -337,8 +337,8 @@ struct class_instance_dependent {
                   "                /* end */ core::null_t>\n"
                   "    f;\n"
                   "};\n",
-                  after_class,
                   external.code_for_instance(name),
+                  after_class,
                   "} /* namespace vk */\n");
     }
 

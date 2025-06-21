@@ -10,6 +10,7 @@
 #include <core/traits/declval.hpp>
 #include <core/traits/is_ptr.hpp>
 #include <core/traits/remove_cvref.hpp>
+#include <core/utility/move.hpp>
 
 namespace core
 {

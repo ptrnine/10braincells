@@ -2,6 +2,7 @@
 
 #include <compare>
 #include <core/basic_types.hpp>
+#include <core/ranges/range.hpp>
 
 namespace core {
 struct index_iterator {
@@ -61,4 +62,8 @@ struct index_iterator {
 
     size_t _value = 0;
 };
+
+inline auto sequence(size_t max) {
+    return range_holder{index_iterator{0}, index_iterator{max}};
+}
 } // namespace core

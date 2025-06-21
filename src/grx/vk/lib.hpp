@@ -10,8 +10,50 @@
 #include <core/string_builder.hpp>
 #include <grx/vk/commands.cg.hpp>
 #include <grx/vk/result.hpp>
+#include <grx/vk/uniq_string_buff.hpp>
 
 #include <grx/vk/logging.hpp>
+
+namespace vk::info {
+struct application {
+    std::string name;
+    vk::version version = {0, 0, 1};
+    std::string engine_name;
+    vk::version engine_version = {0, 0, 1};
+    vk::version api_version    = {1, 0, 0};
+
+    operator application_info() const {
+        return {
+            .application_name    = name.data(),
+            .application_version = version_raw{version},
+            .engine_name         = engine_name.data(),
+            .engine_version      = version_raw{version},
+            .api_version         = version_raw{api_version},
+        };
+    }
+};
+
+struct instance {
+    vk::info::application         application;
+    vk::details::uniq_string_buff extensions;
+    vk::details::uniq_string_buff layers;
+    instance_create_flags         flags        = {};
+    log_severity                  log_severity = log_severity::debug;
+    mutable application_info      _info_app    = application;
+
+    operator instance_create_info() const {
+        _info_app = application;
+        return {
+            .flags                   = flags,
+            .application_info        = &_info_app,
+            .enabled_layer_count     = layers.size(),
+            .enabled_layer_names     = layers.data(),
+            .enabled_extension_count = extensions.size(),
+            .enabled_extension_names = extensions.data(),
+        };
+    }
+};
+} // namespace vk::info
 
 namespace vk
 {
@@ -59,7 +101,7 @@ public:
         return res;
     }
 
-    auto create_instance(const instance_create_info& create_info, log_level log_level = log_level::debug, core::opt<allocation_callbacks> allocator = core::null) const;
+    auto create_instance(info::instance create_info, core::opt<allocation_callbacks> allocator = core::null) const;
 
     auto create_instance_raw(const instance_create_info& create_info,
                              const allocation_callbacks* allocator = nullptr) const {

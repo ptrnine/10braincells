@@ -5,6 +5,7 @@
 
 #include <grx/vk/swapchain.cg.hpp>
 
+#include <grx/color.hpp>
 #include <grx/vk/macro.hpp>
 
 namespace vk {
@@ -34,6 +35,9 @@ namespace arg {
             return fill_with<component_mapping>(component_swizzle::identity);
         }
     } identity;
+
+    constexpr auto color_component_rgba = vk::color_component_flag::r | vk::color_component_flag::g |
+                                          vk::color_component_flag::b | vk::color_component_flag::a;
 
     TBC_VK_DEF_INFO_ARG(swapchain_create_info, surface, surface);
     TBC_VK_DEF_INFO_ARG(swapchain_create_info, min_image_count, min_image_count);
