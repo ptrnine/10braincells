@@ -14,7 +14,7 @@ if(BUILD_3RD)
     include(cmake/submodule_build.cmake)
 
     submodules_init()
-    submodule_build(bullet3 CMAKE_ARGS -DBUILD_UNIT_TESTS=OFF -DBUILD_BULLET2_DEMOS=OFF)
+    #submodule_build(bullet3 CMAKE_ARGS -DBUILD_UNIT_TESTS=OFF -DBUILD_BULLET2_DEMOS=OFF)
     submodule_build(assimp CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF -DASSIMP_BUILD_TESTS=OFF -DASSIMP_WARNINGS_AS_ERRORS=OFF)
     submodule_build(glfw CMAKE_ARGS -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_TESTS=OFF)
 
@@ -26,6 +26,10 @@ if(BUILD_3RD)
     endif()
 
     return()
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    add_compile_definitions(DEBUG)
 endif()
 
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/3rd")
