@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/io/concepts.hpp>
 #include <core/io/rw_impl.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
@@ -83,6 +84,23 @@ public:
             size = 0;
             break;
         case seek_whence::end: throw errc_exception(errc::einval);
+        }
+    }
+
+    void operator>>(out_constraint auto&& out) {
+        if (size) {
+            out.write(std::span{buff + pos, size});
+        }
+
+        while (true) {
+            take_next();
+            if (size != 0)
+                out.write(std::span{buff, size});
+            if (size != BS) {
+                size = 0;
+                return;
+            }
+            size = 0;
         }
     }
 

@@ -197,13 +197,13 @@ struct zip_view {
     zip_iterator_sentinel<decltype(core::end(declval<const Ts&>()))...> ends;
 };
 
-auto with_index(input_range auto&& container) {
+auto with_index(input_range auto&&... containers) {
     return zip{
         range_holder<index_iterator, index_iterator>{
             index_iterator{0},
             index_iterator{core::limits<size_t>::max()},
         },
-        fwd(container),
+        fwd(containers)...,
     };
 }
 } // namespace core

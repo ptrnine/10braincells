@@ -4,8 +4,7 @@
 
 #include <core/traits/make_signed.hpp>
 
-namespace sys
-{
+namespace sys {
 using size_t  = std::size_t;
 using diff_t  = std::ptrdiff_t;
 using ssize_t = core::make_signed<size_t>;
@@ -27,8 +26,12 @@ using char8  = char8_t;
 using char16 = char16_t;
 using char32 = char32_t;
 
-using f32 = float;
-using f64 = double;
+using f32   = float;
+using f64   = double;
+
+using pid_t   = __pid_t;
+using uid_t   = __uid_t;
+using clock_t = __clock_t;
 
 enum class byte : u8 {};
 

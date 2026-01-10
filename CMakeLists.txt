@@ -15,6 +15,7 @@ if(BUILD_3RD)
 
     submodules_init()
     #submodule_build(bullet3 CMAKE_ARGS -DBUILD_UNIT_TESTS=OFF -DBUILD_BULLET2_DEMOS=OFF)
+    submodule_build(pugixml)
     submodule_build(assimp CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF -DASSIMP_BUILD_TESTS=OFF -DASSIMP_WARNINGS_AS_ERRORS=OFF)
     submodule_build(glfw CMAKE_ARGS -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_TESTS=OFF)
 
@@ -64,6 +65,9 @@ add_library(glm::glm INTERFACE IMPORTED)
 set_target_properties(glm::glm PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/submodules/glm"
 )
+
+include_directories("${CMAKE_SOURCE_DIR}/submodules/glm")
+include_directories("${CMAKE_BINARY_DIR}/3rd/include")
 
 add_library(stb::stb INTERFACE IMPORTED)
 set_target_properties(stb::stb PROPERTIES
@@ -120,7 +124,8 @@ include(cmake/codegen.cmake)
 add_subdirectory(codegen)
 
 # Run codegen required by self::src
-codegen(as_tuple
+codegen(as_tuple_target
+    PROGRAM cg_as_tuple
     ARGS "max_fields=16" "out=${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
     OUTPUT "${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
 )

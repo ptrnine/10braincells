@@ -15,7 +15,7 @@ template <typename... Ts>
 inline auto openat(fd_t dirfd, Ts&&... args) {
     const char* pathname;
     openflags   flags = openflag::large;
-    file_perms  mode  = file_perms::none;
+    file_perms  mode  = file_perms::o644;
 
     core::fwd_as_tuple(fwd(args)...)
         .foreach (core::overloaded{

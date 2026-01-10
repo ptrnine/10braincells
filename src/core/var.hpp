@@ -827,6 +827,21 @@ struct var : dtls::var_impl<Ts...> {
         return idx_of_type<T, Ts...>;
     }
 
+    template <typename T>
+    constexpr bool is_type(type_t<T> = {}) const {
+        return this->index() == index_of(type<T>);
+    }
+
+    template <any_of<Ts...> T>
+    constexpr bool operator==(const T& value) const {
+        return is_type(type<T>) && unsafe_get(type<T>) == value;
+    }
+
+    template <any_of<Ts...> T>
+    constexpr bool operator!=(const T& value) const {
+        return !operator==(value);
+    }
+
 #if 0
     constexpr decltype(auto) visit(auto&&... functions) const& {
         return idx_dispatch<sizeof...(Ts)>(var_base::index(), [this, o = overloaded{fwd(functions)...}](auto i) {

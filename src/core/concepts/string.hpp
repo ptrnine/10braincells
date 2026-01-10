@@ -44,5 +44,8 @@ concept sized_str_typed = char_type<C> && requires(const T& str) {
 };
 
 template <typename T>
+concept std_string = details::_std_string<T>;
+
+template <typename T>
 concept null_term_string = c_string<T> || details::_std_string<T>;
 } // namespace core

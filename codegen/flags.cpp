@@ -1,11 +1,13 @@
 #include <core/io/std.hpp>
 #include <core/io/mmap.hpp>
+
+#include <codegen/cg_generate.hpp>
 #include <core/ranges/fold.hpp>
 #include <core/ranges/split.hpp>
 #include <core/ranges/subst.hpp>
-
+#include <core/ranges/to.hpp>
+#include <core/ranges/trim.hpp>
 #include <util/arg_parse.hpp>
-#include <codegen/cg_generate.hpp>
 
 using namespace core;
 using namespace core::views;
@@ -18,7 +20,7 @@ tbc_cmd(main) {
     tbc_arg(output, opt<std::string>, "output file"_ctstr);
     tbc_arg(includes, opt<std::string_view>, "additional includes"_ctstr);
     tbc_arg(namespace_name, opt<std::string_view>, "holding namespace"_ctstr);
-    std::string_view flag_defs;
+    std::vector<std::string_view> flag_defs;
 
     util::cmd_description description{
         "generates flag helper types\n"
@@ -61,7 +63,7 @@ void gen(auto&& out, const main_cmd<>& args) {
               "enum class ${name} : ${type} {\n" |
               replacer);
 
-    for (auto flag_def : args.flag_defs | split{' '}) {
+    for (auto&& flag_def : args.flag_defs) {
         out.write("    "sv, std::string_view(flag_def) | split{'='} | fold{" = "sv}, ",\n");
     }
 
@@ -102,10 +104,12 @@ void gen(auto&& out, const main_cmd<>& args) {
               "        constexpr core::array flags = {\n" |
               replacer);
 
-    for (auto flag_def : args.flag_defs | split{' '}) {
-        std::string_view flag = *(std::string_view(flag_def) | split{'='}).begin();
-        out.write("            core::tuple{${name}::${flag}, std::string_view(\"${flag}\")},\n" |
-                  subst{subst_entry{"name", args.name.get()}, subst_entry{"flag"sv, flag}});
+    for (auto&& flag_def : args.flag_defs) {
+        std::string_view flag = *(flag_def | split{'='}).begin();
+        out.write(
+            "            core::tuple{${name}::${flag}, std::string_view(\"${flag}\")},\n" |
+            subst{subst_entry{"name", args.name.get()}, subst_entry{"flag"sv, flag | trim{' '} | to<std::string_view>{}}}
+        );
     }
     out.write("        };\n"
               "        std::string res;\n"

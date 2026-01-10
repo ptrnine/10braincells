@@ -87,7 +87,7 @@ namespace details
 
         constexpr errc error() const {
             if ((unsigned long)_r > (~0UL - 4095UL))
-                return {-_r};
+                return {(int)-_r};
             return {0};
         }
 

@@ -1,6 +1,7 @@
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/src/grx/vk")
 
-codegen(vulkan_api
+codegen(vulkan_api_target
+    PROGRAM cg_vulkan_api
     ARGS "api=${VULKAN_API}" "dir=${CMAKE_BINARY_DIR}/src/grx/vk"
     OUTPUT
         "${CMAKE_BINARY_DIR}/src/grx/vk/commands.cg.hpp"

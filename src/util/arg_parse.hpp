@@ -459,8 +459,18 @@ namespace details
                     v._value = arg_cast<typename decl_type<t>::type>{}(arg, log);
             }
             else if constexpr (arg_t == arg_type::positional) {
-                auto arg = arg_next(args, log);
-                v        = arg_cast<decl_type<t>>{}(arg, log);
+                if constexpr (t == type<std::vector<std::string_view>>) {
+                    while (true) {
+                        auto arg = arg_next(args, log);
+                        if (arg)
+                            v.push_back(arg_cast<std::string_view>{}(arg, log));
+                        else
+                            break;
+                    };
+                } else {
+                    auto arg = arg_next(args, log);
+                    v        = arg_cast<decl_type<t>>{}(arg, log);
+                }
             }
             else if constexpr (arg_t == arg_type::command) {
                 parse_commands(args, v._value, log, exec_path, cmdline);

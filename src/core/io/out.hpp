@@ -1,7 +1,8 @@
 #pragma once
 
-#include <core/io/out_base.hpp>
+#include <core/io/concepts.hpp>
 #include <core/io/deduce_backend_type.hpp>
+#include <core/io/out_base.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -32,9 +33,6 @@ out(type_t<B>) -> out<decl_type<details::deduce_backend_type<B&&, true>()>>;
 
 template <typename B, size_t BS>
 out(type_t<B>, int_const<BS>) -> out<decl_type<details::deduce_backend_type<B&&, true>()>, BS>;
-
-template <typename T>
-concept out_constraint = requires { typename remove_cvref<T>::out_tag; };
 } // namespace core::io
 
 #undef fwd
