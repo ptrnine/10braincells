@@ -4,3 +4,4 @@
 #define VK_EXT_debug_utils
 #define VK_KHR_surface
 #define VK_KHR_swapchain
+#define VK_KHR_timeline_semaphore

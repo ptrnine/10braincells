@@ -302,4 +302,18 @@ namespace arg {
 auto vk_lib::create_instance(info::instance create_info, core::opt<allocation_callbacks> allocator) const {
     return instance_t{*this, core::mov(create_info), allocator};
 }
+
+template <typename... Ts>
+auto* chain_setup(core::tuple<Ts...>& chain) {
+    if constexpr (chain.size() > 0) {
+        core::idx_seq<chain.size()>{}.foreach ([&](auto idx) {
+            if constexpr (idx + 1 < chain.size()) {
+                chain[idx].next = &chain[idx + core::size_c<1>];
+            }
+        });
+        return &chain[core::size_c<0>];
+    } else {
+        return nullptr;
+    }
+}
 } // namespace vk

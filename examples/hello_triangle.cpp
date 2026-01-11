@@ -1,4 +1,5 @@
 #include <grx/vk.hpp>
+#include <grx/vk/types.cg.hpp>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -137,7 +138,7 @@ int main() {
                 .version        = {.major = 1, .minor = 0, .patch = 0},
                 .engine_name    = "Test Engine",
                 .engine_version = {.major = 1, .minor = 0, .patch = 0},
-                .api_version    = {.major = 1, .minor = 0, .patch = 0},
+                .api_version    = {.major = 1, .minor = 3, .patch = 0},
             },
         .extensions = required_extensions(),
         .layers     = {"VK_LAYER_KHRONOS_validation"},
@@ -159,6 +160,7 @@ int main() {
             .queues     = {{.family_index = families.graphics}, {.family_index = families.present}},
             .extensions = {"VK_KHR_swapchain"},
             .features   = {.shader_clip_distance = true, .shader_cull_distance = true},
+            .chained = core::tuple{vk::physical_device_timeline_semaphore_features{.timeline_semaphore = true}},
         }
     );
 
@@ -327,9 +329,12 @@ int main() {
     );
 
     /*************** Create sync objects */
-    auto image_available_semaphores = filled_with(frames_in_flight, [&] { return dev.create_semaphore({}); }) | to_vector{};
-    auto render_finished_semaphores = filled_with(swapchain_images.size(), [&] { return dev.create_semaphore({}); }) | to_vector{};
-    auto in_flight_fences           = filled_with(frames_in_flight, [&] { return dev.create_fence({.flags = vk::fence_create_flag::signaled}); }) | to_vector{};
+    auto timeline_sem               = dev.create_typed_semaphore(vk::semaphore_type::timeline);
+    u64  timeline_value             = 0;
+    auto image_available_semaphores = filled_with(frames_in_flight, [&] { return dev.create_typed_semaphore(vk::semaphore_type::binary); }) | to_vector{};
+    // auto render_finished_semaphores = filled_with(swapchain_images.size(), [&] { return dev.create_typed_semaphore(vk::semaphore_type::binary); }) |
+    // to_vector{};
+    auto in_flight_fences = filled_with(frames_in_flight, [&] { return dev.create_fence({.flags = vk::fence_create_flag::signaled}); }) | to_vector{};
 
     u32               frame = 0;
     util::fps_counter fps;
@@ -372,31 +377,37 @@ int main() {
         }
 
         /* Queue submit */
+        auto timeline_signal = ++timeline_value;
         graphics_queue
             .submit(
                 vk::info::submit{
                     .wait_semaphores   = {vk::info::submit::wait_info{
-                          .semaphore = image_available_semaphores[frame], .flags = vk::pipeline_stage_flag::color_attachment_output
+                          .semaphore      = image_available_semaphores[frame],
+                          .flags          = vk::pipeline_stage_flag::color_attachment_output,
                     }},
                     .command_buffers   = {command_buffers[frame]},
-                    .signal_semaphores = {render_finished_semaphores[image_index]}
+                    .signal_semaphores = {vk::info::submit::signal_info{
+                        .semaphore      = timeline_sem,
+                        .timeline_value = timeline_signal,
+                    }}
                 },
                 in_flight_fences[frame]
             )
             .throws();
 
+        dev.wait(timeline_sem, timeline_signal);
+
         present_queue
             .present(
                 vk::info::present{
-                    .wait_semaphores = {render_finished_semaphores[image_index]},
-                    .swapchains      = {vk::info::present::swapchain{.swapchain = swapchain, .image_index = image_index}}
+                    .swapchains = {vk::info::present::swapchain{.swapchain = swapchain, .image_index = image_index}},
                 }
             )
             .throws();
 
         frame = (frame + 1) % frames_in_flight;
 
-        log.warn_update(0, "{}", fps.calculate());
+        log.warn_update(0, "{} {}", fps.calculate(), timeline_value);
     }
 
     dev.wait_idle().throws();

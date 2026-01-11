@@ -30,7 +30,7 @@ void generate_physical_device_header(const pugi::xml_node& registry, cg::vk::ext
     c.name          = "physical_device_t";
     c.functions     = {
         {.name = "get_physical_device_properties"},
-        {.name = "get_physical_device_properties2"},
+        {.name = "get_physical_device_properties2", .type = cg::vk::gen_type::only_cache_this},
         {.name = "get_physical_device_features"},
         {.name = "get_physical_device_features2"},
         {.name = "get_physical_device_memory_properties"},
@@ -66,6 +66,24 @@ void generate_physical_device_header(const pugi::xml_node& registry, cg::vk::ext
         "get_",
     };
     c.func_postfixes = {"_khr", "_ext"};
+    c.definitions.push_back(
+        "template <typename... Ts>\n"
+        "    auto properties2() const {\n"
+        "        auto func = f[cmd::get_physical_device_properties2];\n"
+        "        core::tuple<vk::physical_device_properties2, Ts...> result;\n"
+        "        func.call(dev, chain_setup(result));\n"
+        "        return result;\n"
+        "    }\n"
+    );
+    c.definitions.push_back(
+        "template <typename T>\n"
+        "    auto get_prop() const {\n"
+        "        auto func = f[cmd::get_physical_device_properties2];\n"
+        "        core::tuple<vk::physical_device_properties2, T> result;\n"
+        "        func.call(dev, chain_setup(result));\n"
+        "        return result[core::type<T>];\n"
+        "    }\n"
+    );
     c.after_class    = "\n"
                        "auto instance_t::physical_devices() const {\n"
                        "    return physical_devices_raw().map([this](std::span<const physical_device> devs) {\n"
@@ -111,13 +129,23 @@ void generate_logical_device_header(const pugi::xml_node& registry, cg::vk::exte
         {.name = "device_wait_idle"},
         {.name = "wait_for_fences", .type = cg::vk::gen_type::only_cache_this},
         {.name = "reset_fences", .type = cg::vk::gen_type::only_cache_this},
+        {.name = "wait_semaphores", .type = cg::vk::gen_type::only_cache_this},
     };
     c.func_prefixes  = {"device_"};
     c.func_postfixes = {"_khr", "_ext"};
     c.copyable       = false;
     c.definitions.push_back(
         "void wait(fence fence, std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max()) {\n"
-        "        f[cmd::wait_for_fences].call(dev, 1, &fence, true, timeout.count());\n"
+        "        f[cmd::wait_for_fences].call(dev, 1, &fence, true, u64(timeout.count()));\n"
+        "    }\n"
+    );
+    c.definitions.push_back(
+        "void wait(semaphore sem, core::opt<u64> timeline_signal_value = {}, std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max()) {\n"
+        "        semaphore_wait_info info{};\n"
+        "        info.semaphore_count = 1;\n"
+        "        info.semaphores = &sem;\n"
+        "        info.values = timeline_signal_value ? &*timeline_signal_value : nullptr;\n"
+        "        f[cmd::wait_semaphores].call(dev, &info, u64(timeout.count()));\n"
         "    }\n"
     );
     c.definitions.push_back(
@@ -129,6 +157,7 @@ void generate_logical_device_header(const pugi::xml_node& registry, cg::vk::exte
         "auto create_graphics_pipeline(vk::pipeline_cache pipeline_cache, const vk::graphics_pipeline_create_info& create_info, "
         "core::opt<vk::allocation_callbacks> allocator = core::null) const;\n"
     );
+    c.definitions.push_back("auto create_typed_semaphore(vk::semaphore_type type, u64 intiial_value = 0, core::opt<vk::allocation_callbacks> allocator = core::null) const;");
 
     out.write(
         "#pragma once\n"
@@ -390,12 +419,26 @@ void generate_semaphore_header(const pugi::xml_node& registry, cg::vk::external_
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
     c.copyable       = false;
+
     out.write(
         "#pragma once\n"
         "\n"
         "#include <grx/vk/device.cg.hpp>\n\n"
     );
     c.generate(out, cmds, eg);
+
+    out.write(
+        "namespace vk {\n"
+        "auto device_t::create_typed_semaphore(vk::semaphore_type type, u64 initial_value, core::opt<vk::allocation_callbacks> allocator) const {\n"
+        "    vk::semaphore_create_info info{};\n"
+        "    vk::semaphore_type_create_info type_info{};\n"
+        "    type_info.semaphore_type = type;\n"
+        "    type_info.initial_value = initial_value;\n"
+        "    info.next = &type_info;\n"
+        "    return create_semaphore(info, core::mov(allocator));\n"
+        "}\n"
+        "} // namespace vk\n"
+    );
 }
 
 void generate_fence_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {

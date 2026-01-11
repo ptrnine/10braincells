@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/tuple.hpp>
 #include <grx/vk/extension_defines.hpp>
 
 #include <core/opt.hpp>
@@ -37,10 +38,12 @@ struct device_queue {
     }
 };
 
+template <typename... Ts>
 struct device {
-    std::set<device_queue>    queues;
-    details::uniq_string_buff extensions = {};
-    physical_device_features  features   = {};
+    std::set<device_queue>     queues;
+    details::uniq_string_buff  extensions = {};
+    physical_device_features   features   = {};
+    mutable core::tuple<Ts...> chained    = {};
 
     mutable std::vector<device_queue_create_info> _info_queues = {};
 
@@ -48,13 +51,14 @@ struct device {
         _info_queues = std::vector<device_queue_create_info>(queues.begin(), queues.end());
 
         return {
+            .next                    = chain_setup(chained),
             .queue_create_info_count = u32(_info_queues.size()),
-            .queue_create_infos = _info_queues.data(),
-            .enabled_layer_count = 0,
-            .enabled_layer_names = nullptr,
+            .queue_create_infos      = _info_queues.data(),
+            .enabled_layer_count     = 0,
+            .enabled_layer_names     = nullptr,
             .enabled_extension_count = extensions.size(),
             .enabled_extension_names = extensions.data(),
-            .enabled_features = &features,
+            .enabled_features        = &features,
         };
     }
 };
@@ -488,31 +492,65 @@ struct submit {
     struct wait_info {
         vk::semaphore        semaphore;
         pipeline_stage_flags flags;
+        core::opt<u64>       timeline_value = {};
+    };
+
+    struct signal_info {
+        vk::semaphore  semaphore;
+        core::opt<u64> timeline_value = {};
     };
 
     std::vector<wait_info>          wait_semaphores;
     std::vector<vk::command_buffer> command_buffers;
-    std::vector<vk::semaphore>      signal_semaphores;
+    std::vector<signal_info>        signal_semaphores;
 
-    mutable std::vector<semaphore>            _m_wait_semaphores = {};
-    mutable std::vector<pipeline_stage_flags> _m_wait_flags      = {};
+    mutable std::vector<semaphore>             _m_wait_semaphores      = {};
+    mutable std::vector<pipeline_stage_flags>  _m_wait_flags           = {};
+    mutable std::vector<semaphore>             _m_signal_semaphores    = {};
+    mutable std::vector<u64>                   _m_timeline_wait_sems   = {};
+    mutable std::vector<u64>                   _m_timeline_signal_sems = {};
+    mutable vk::timeline_semaphore_submit_info _m_timeline_sem         = {};
 
     operator submit_info() const {
         _m_wait_semaphores.clear();
         _m_wait_flags.clear();
+        _m_signal_semaphores.clear();
+        _m_timeline_wait_sems.clear();
+        _m_timeline_signal_sems.clear();
+
         for (auto&& w : wait_semaphores) {
             _m_wait_semaphores.push_back(w.semaphore);
             _m_wait_flags.push_back(w.flags);
+            if (w.timeline_value) {
+                _m_timeline_wait_sems.push_back(*w.timeline_value);
+            }
+        }
+
+        for (auto&& s : signal_semaphores) {
+            _m_signal_semaphores.push_back(s.semaphore);
+            if (s.timeline_value) {
+                _m_timeline_signal_sems.push_back(*s.timeline_value);
+            }
+        }
+
+        vk::timeline_semaphore_submit_info* timeline_sem = nullptr;
+        if (!_m_timeline_wait_sems.empty() || !_m_timeline_signal_sems.empty()) {
+            _m_timeline_sem.wait_semaphore_value_count = u32(_m_wait_semaphores.size());
+            _m_timeline_sem.wait_semaphore_values = _m_timeline_wait_sems.data();
+            _m_timeline_sem.signal_semaphore_value_count = u32(_m_signal_semaphores.size());
+            _m_timeline_sem.signal_semaphore_values = _m_timeline_signal_sems.data();
+            timeline_sem = &_m_timeline_sem;
         }
 
         return {
+            .next                   = timeline_sem,
             .wait_semaphore_count   = u32(_m_wait_semaphores.size()),
             .wait_semaphores        = data_or_null(_m_wait_semaphores),
             .wait_dst_stage_mask    = data_or_null(_m_wait_flags),
             .command_buffer_count   = u32(command_buffers.size()),
             .command_buffers        = data_or_null(command_buffers),
-            .signal_semaphore_count = u32(signal_semaphores.size()),
-            .signal_semaphores      = data_or_null(signal_semaphores),
+            .signal_semaphore_count = u32(_m_signal_semaphores.size()),
+            .signal_semaphores      = data_or_null(_m_signal_semaphores),
         };
     }
 };
@@ -527,7 +565,7 @@ struct present {
     };
 
     /** Semaphores to wait for before presenting */
-    std::vector<vk::semaphore> wait_semaphores;
+    std::vector<vk::semaphore> wait_semaphores = {};
     std::vector<swapchain>     swapchains;
 
     mutable std::vector<vk::swapchain_khr> _m_swapchain     = {};
