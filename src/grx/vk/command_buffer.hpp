@@ -6,6 +6,8 @@
 namespace vk {
 class command_buffer_store_t {
 public:
+    command_buffer_store_t() = default;
+
     command_buffer_store_t(const device_t& idev, vk::command_pool ipool, std::vector<vk::command_buffer> ihandles):
         dev(&idev), pool(ipool), _handles(core::mov(ihandles)) {
         f.pass_to([&](auto&... functions) {
@@ -94,6 +96,32 @@ public:
 
     ~with_render_pass() {
         buff->cmd_end_render_pass();
+    }
+
+    with_buffer& operator*() {
+        return buff;
+    }
+
+    with_buffer* operator->() {
+        return &buff;
+    }
+
+    constexpr operator bool() const {
+        return true;
+    }
+
+private:
+    with_buffer& buff;
+};
+
+class with_rendering {
+public:
+    with_rendering(with_buffer& buffer, const vk::rendering_info& info): buff(buffer) {
+        buff->cmd_begin_rendering(info);
+    }
+
+    ~with_rendering() {
+        buff->cmd_end_rendering();
     }
 
     with_buffer& operator*() {

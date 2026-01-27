@@ -58,8 +58,12 @@ inline auto parse_structs(const pugi::xml_node&        registry,
                 if (init_zeros && field.value.empty()) {
                     if (field.type.ends_with('*'))
                         field.value = "nullptr";
-                    else
+                    else if (field.type == "bool32_t" || field.type == "u32") {
                         field.value = "0";
+                    }
+                    else if (field.type == "format" || field.type == "vk::image_layout") {
+                        field.value = field.type + "::undefined";
+                    }
                 }
 
                 struct_res.fields.push_back(core::mov(field));

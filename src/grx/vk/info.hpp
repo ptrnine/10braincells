@@ -42,7 +42,7 @@ template <typename... Ts>
 struct device {
     std::set<device_queue>     queues;
     details::uniq_string_buff  extensions = {};
-    physical_device_features   features   = {};
+    //physical_device_features   features   = {};
     mutable core::tuple<Ts...> chained    = {};
 
     mutable std::vector<device_queue_create_info> _info_queues = {};
@@ -58,7 +58,8 @@ struct device {
             .enabled_layer_names     = nullptr,
             .enabled_extension_count = extensions.size(),
             .enabled_extension_names = extensions.data(),
-            .enabled_features        = &features,
+            .enabled_features        = nullptr,
+            //.enabled_features        = &features,
         };
     }
 };
@@ -73,6 +74,8 @@ struct swapchain_image {
     u32 array_layers;
     /** Bits indicating how the presentation images will be used */
     image_usage_flags usage;
+    /** Sharing mode used for the presentation images */
+    sharing_mode sharing_mode = sharing_mode::exclusive;
 };
 
 struct swapchain {
@@ -108,7 +111,7 @@ struct swapchain {
             .image_extent             = image.extent,
             .image_array_layers       = image.array_layers,
             .image_usage              = image.usage,
-            .image_sharing_mode       = sharing_mode::exclusive,
+            .image_sharing_mode       = image.sharing_mode,
             .queue_family_index_count = 0,
             .queue_family_indices     = nullptr,
             .pre_transform            = pre_transform,
@@ -240,13 +243,13 @@ namespace pipeline {
             }
         };
 
-        struct rasterization {
-            struct depth_bias {
-                float constant_factor;
-                float clamp;
-                float slope_factor;
-            };
+        struct depth_bias {
+            float constant_factor;
+            float clamp;
+            float slope_factor;
+        };
 
+        struct rasterization {
             bool                  depth_clamp_enable;
             bool                  rasterizer_discard_enable;
             polygon_mode          polygon_mode;
@@ -367,6 +370,7 @@ namespace pipeline {
     };
 } // namespace pipeline
 
+template <typename... Ts>
 struct graphics_pipeline {
     /** One entry for each active shader stage */
     std::vector<pipeline_shader_stage> stages = {};
@@ -376,7 +380,7 @@ struct graphics_pipeline {
     /** Interface layout of the pipeline */
     vk::pipeline_layout layout      = {};
     vk::render_pass     render_pass = {};
-    u32                 subpass;
+    u32                 subpass     = 0;
     /**
      * If VK_PIPELINE_CREATE_DERIVATIVE_BIT is set and this value is nonzero, it specifies the handle of the base
      * pipeline this is a derivative of
@@ -387,6 +391,8 @@ struct graphics_pipeline {
      * the base pipeline this is a derivative of
      */
     i32 base_pipeline_index = -1;
+
+    mutable core::tuple<Ts...> chained = {};
 
     mutable std::vector<pipeline_vertex_input_state_create_info>  _m_vertex_input_state  = {};
     mutable std::vector<pipeline_viewport_state_create_info>      _m_viewport_state      = {};
@@ -404,6 +410,7 @@ struct graphics_pipeline {
         _m_dynamic_state.assign(states.dynamic.begin(), states.dynamic.end());
 
         return {
+            .next                 = chain_setup(chained),
             .stage_count          = u32(stages.size()),
             .stages               = data_or_null(stages),
             .vertex_input_state   = data_or_null(_m_vertex_input_state),
@@ -586,6 +593,48 @@ struct present {
             .swapchains           = data_or_null(_m_swapchain),
             .image_indices        = data_or_null(_m_image_indices),
             .results              = nullptr,
+        };
+    }
+};
+
+struct dependency {
+    dependency_flags                    flags                  = {};
+    std::vector<memory_barrier2>        memory_barriers        = {};
+    std::vector<buffer_memory_barrier2> buffer_memory_barriers = {};
+    std::vector<image_memory_barrier2>  image_memory_barriers  = {};
+
+    operator dependency_info() const {
+        return {
+            .dependency_flags            = flags,
+            .memory_barrier_count        = u32(memory_barriers.size()),
+            .memory_barriers             = data_or_null(memory_barriers),
+            .buffer_memory_barrier_count = u32(buffer_memory_barriers.size()),
+            .buffer_memory_barriers      = data_or_null(buffer_memory_barriers),
+            .image_memory_barrier_count  = u32(image_memory_barriers.size()),
+            .image_memory_barriers       = data_or_null(image_memory_barriers),
+        };
+    }
+};
+
+struct rendering {
+    rendering_flags                        flags = {};
+    rect2d                                 render_area;
+    u32                                    layer_count = 0;
+    u32                                    view_mask   = 0;
+    std::vector<rendering_attachment_info> color_attachments;
+    core::opt<rendering_attachment_info>   depth_attachment   = {};
+    core::opt<rendering_attachment_info>   stencil_attachment = {};
+
+    operator rendering_info() const {
+        return {
+            .flags                  = flags,
+            .render_area            = render_area,
+            .layer_count            = layer_count,
+            .view_mask              = view_mask,
+            .color_attachment_count = u32(color_attachments.size()),
+            .color_attachments      = data_or_null(color_attachments),
+            .depth_attachment       = depth_attachment ? &*depth_attachment : nullptr,
+            .stencil_attachment     = stencil_attachment ? &*stencil_attachment : nullptr,
         };
     }
 };

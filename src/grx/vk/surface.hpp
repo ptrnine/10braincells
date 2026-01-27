@@ -5,6 +5,8 @@
 namespace vk {
 class surface_t {
 public:
+    surface_t() = default;
+
     surface_t(const instance_t& instance, surface_khr surface): inst(&instance), handle(surface) {
         f.pass_to([&](auto&... functions) {
             inst->load_functions_cached(functions...);
@@ -16,6 +18,9 @@ public:
             f[cmd::destroy_surface_khr].call(inst->handle(), handle, core::null);
         }
     }
+
+    surface_t(surface_t&&) noexcept = default;
+    surface_t& operator=(surface_t&&) noexcept = default;
 
     operator surface_khr() const {
         return handle;

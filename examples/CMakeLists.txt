@@ -10,6 +10,10 @@ add_executable(hello_triangle ./hello_triangle.cpp)
 target_link_libraries(hello_triangle PRIVATE glm::glm self::src glfw vulkan)
 add_dependencies(hello_triangle vulkan_api_target)
 
+add_executable(hello_triangle_modernized ./hello_triangle_modernized.cpp)
+target_link_libraries(hello_triangle_modernized PRIVATE glm::glm self::src glfw vulkan)
+add_dependencies(hello_triangle_modernized vulkan_api_target)
+
 add_executable(uring_example ./uring.cpp)
 target_link_libraries(uring_example PRIVATE self::src uring)
 add_dependencies(uring_example io_uring_cg)

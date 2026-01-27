@@ -58,6 +58,20 @@ struct [[nodiscard("Result should be processed")]] result_t {
         return res;
     }
 
+    constexpr auto&& checked(this auto&& it) {
+        if (!it.ok())
+            throw result_error(it.rc);
+        return fwd(it);
+    }
+
+    static constexpr auto ok_codes() {
+        return success_codes;
+    }
+
+    static constexpr auto bad_codes() {
+        return error_codes;
+    }
+
     T          value_unsafe;
     vk::result rc;
 };
@@ -81,8 +95,22 @@ struct [[nodiscard("Result should be processed")]] result_t<void, success_codes,
             throw result_error(rc);
     }
 
+    constexpr auto&& checked(this auto&& it) {
+        if (!it.ok())
+            throw result_error(it.rc);
+        return fwd(it);
+    }
+
     explicit constexpr operator bool() const {
         return ok();
+    }
+
+    static constexpr auto ok_codes() {
+        return success_codes;
+    }
+
+    static constexpr auto bad_codes() {
+        return error_codes;
     }
 
     vk::result rc;

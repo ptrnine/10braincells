@@ -61,6 +61,8 @@ class vk_lib {
 public:
     using lib_t = core::moveonly_trivial<void*, nullptr>;
 
+    vk_lib() = default;
+
     vk_lib(const std::string& lib_path): _lib(dlopen(lib_path.data(), RTLD_LAZY | RTLD_LOCAL)) {
         cmd::load_from_lib(_lib,
                            _get_instance_proc_addr,
@@ -70,6 +72,9 @@ public:
                            _create_instance,
                            _destroy_instance);
     }
+
+    vk_lib(vk_lib&& lib) noexcept = default;
+    vk_lib& operator=(vk_lib&& lib) noexcept = default;
 
     ~vk_lib() {
         if (_lib.not_default())
@@ -122,6 +127,10 @@ public:
                 cmd::load_from_lib(_lib, func_holder);
         };
         (load(func_holders), ...);
+    }
+
+    explicit operator bool() const noexcept {
+        return _lib.not_default();
     }
 
 private:

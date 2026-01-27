@@ -392,6 +392,10 @@ void generate_command_buffer_header(const pugi::xml_node& registry, cg::vk::exte
         {.name = "cmd_set_scissor"},
         {.name = "cmd_draw"},
         {.name = "cmd_end_render_pass"},
+        {.name = "cmd_pipeline_barrier"},
+        {.name = "cmd_pipeline_barrier2"},
+        {.name = "cmd_begin_rendering"},
+        {.name = "cmd_end_rendering"},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext", "_command_buffer"};
@@ -517,6 +521,14 @@ void tbc_main(vulkan_cmd<> args) {
         {
             "physical_device_features",
             "pipeline_vertex_input_state_create_info",
+            "physical_device_vulkan11_features",
+            "physical_device_vulkan12_features",
+            "physical_device_vulkan13_features",
+            "pipeline_input_assembly_state_create_info",
+            "pipeline_rendering_create_info",
+            "rendering_info",
+            "rendering_attachment_info",
+            "dependency_info",
         },
         openfile("structs.cg.hpp")
     );

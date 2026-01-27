@@ -84,16 +84,20 @@ struct class_instance_dependent {
             "using core::type;\n"
             "class ${name} {\n"
             "public:\n"
+            "    ${name}() noexcept = default;\n"
             "    ${name}(const ${itype}& i${iname}, ${htype} i${hname}): ${iname}(&i${iname}), ${hname}(i${hname}) {\n"
             "        f.pass_to([&](auto&... functions) {\n"
             "            ${iname}->load_functions_cached(functions...);\n"
             "        });\n"
-            "     }\n" | cfg);
+            "     }\n" |
+            cfg
+        );
         if (!copyable) {
-            out.write("\n"
-                      "    ${name}(${name}&&) noexcept = default;\n"
-                      "    ${name}& operator=(${name}&&) noexcept = default;\n" |
-                      cfg);
+            out.write(
+                "\n"
+                "    ${name}(${name}&&) noexcept = default;\n" |
+                cfg
+            );
         }
         out.write(("\n"
                    "    void load_functions_cached(auto&... functions) const {\n"
@@ -117,6 +121,12 @@ struct class_instance_dependent {
 
         std::string func_types;
         std::string opened_macro;
+
+        struct dtor_params {
+            std::string              name;
+            std::vector<std::string> args;
+        };
+        core::opt<dtor_params> meet_dtor;
 
         /* Gen functions */
         for (auto&& f : funcs) {
@@ -169,6 +179,7 @@ struct class_instance_dependent {
                         arg.name = "nullptr";
                     }
                 }
+                meet_dtor = dtor_params{function_info->name, pass_cpp_args_to_c(f, dtor_args, true)};
 
                 out.write("    ~${name}() {\n" | cfg);
                 if (!copyable) {
@@ -179,8 +190,7 @@ struct class_instance_dependent {
                               pass_cpp_args_to_c(f, dtor_args, true) | fold(", "),
                               ");\n"
                               "        }\n");
-                }
-                else {
+                } else {
                     out.write("        f[cmd::",
                               function_info->name,
                               "].call(",
@@ -319,28 +329,55 @@ struct class_instance_dependent {
             out.write(close_macro, "\n");
         }
 
+        if (!copyable) {
+            if (meet_dtor && !user_defined_dtor) {
+                out.write(
+                    "\n"
+                    "    ${name}& operator=(${name}&& rhs) noexcept {\n"
+                    "        if (${hname}.not_default()) {\n" |
+                        cfg,
+                    "            f[cmd::",
+                    meet_dtor->name,
+                    "].call(",
+                    meet_dtor->args | fold(", "),
+                    ");\n"
+                    "        }\n"
+                    "        ${iname} = core::mov(rhs.${iname});\n"
+                    "        ${hname} = core::mov(rhs.${hname});\n"
+                    "        f = core::mov(rhs.f);\n"
+                    "        return *this;\n"
+                    "    }\n" |
+                        cfg
+                );
+            } else {
+                out.write("    ${name}& operator=(${name}&&) noexcept = default;\n\n" | cfg);
+            }
+        }
+
         for (auto& def : definitions)
             out.write("    ", def, "\n");
 
-        out.write("\n"
-                  "    operator ${htype}() const {\n"
-                  "        return ${hname};\n"
-                  "    }\n"
-                  "\n"
-                  "private:\n"
-                  "    const ${itype}* ${iname};\n"
-                  "    ${hstore} ${hname};\n"
-                  "\n"
-                  "    core::tuple</* start */\n" |
-                      cfg,
-                  func_types,
-                  "                /* end */ core::null_t>\n"
-                  "    f;\n"
-                  "};\n",
-                  external.code_for_instance(name),
-                  after_class,
-                  "} /* namespace vk */\n");
-    }
+        out.write(
+            "\n"
+            "    operator ${htype}() const {\n"
+            "        return ${hname};\n"
+            "    }\n"
+            "\n"
+            "private:\n"
+            "    const ${itype}* ${iname};\n"
+            "    ${hstore} ${hname};\n"
+            "\n"
+            "    core::tuple</* start */\n" |
+                cfg,
+            func_types,
+            "                /* end */ core::null_t>\n"
+            "    f;\n"
+            "};\n",
+            external.code_for_instance(name),
+            after_class,
+            "} /* namespace vk */\n"
+        );
+        }
 
     std::string               name;
     class_param               instance;

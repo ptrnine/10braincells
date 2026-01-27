@@ -15,6 +15,8 @@ class instance_t {
 public:
     using inst_t = core::moveonly_trivial<vk::instance, nullptr>;
 
+    instance_t() = default;
+
     instance_t(
         const vk_lib& library, info::instance create_info, core::opt<allocation_callbacks> allocator = core::null
     ):
@@ -30,10 +32,32 @@ public:
     }
 
     ~instance_t() {
-        destroy_debug_callback();
+        destroy();
+    }
 
-        if (inst.not_default())
-            lib->destroy_instance_raw(inst);
+    instance_t(instance_t&& instance) noexcept: lib(instance.lib), inst(core::mov(instance.inst)), f(core::mov(instance.f)) {
+        std::lock_guard lock{mtx};
+        // NOLINTNEXTLINE
+        func_cache = core::mov(instance.func_cache);
+        // NOLINTNEXTLINE
+        deb_callback = instance.deb_callback;
+    }
+
+    instance_t& operator=(instance_t&& instance) noexcept {
+        if (this == &instance) {
+            return *this;
+        }
+
+        std::scoped_lock lock{mtx, instance.mtx};
+
+        destroy();
+        lib          = instance.lib;
+        inst         = core::mov(instance.inst);
+        f            = core::mov(instance.f);
+        func_cache   = core::mov(instance.func_cache);
+        deb_callback = instance.deb_callback;
+
+        return *this;
     }
 
     void load_functions(auto&... func_holders) const {
@@ -87,7 +111,18 @@ public:
 
     auto physical_devices() const;
 
+    explicit operator bool() const noexcept {
+        return inst.not_default();
+    }
+
 private:
+    void destroy() {
+        if (inst.not_default()) {
+            destroy_debug_callback();
+            lib->destroy_instance_raw(inst);
+        }
+    }
+
     inst_t init(const vk_lib* lib, info::instance create_info, core::opt<allocation_callbacks> allocator) {
         if (create_info.log_severity != log_severity::off) {
             create_info.extensions.push_back("VK_EXT_debug_utils");
@@ -306,14 +341,14 @@ auto vk_lib::create_instance(info::instance create_info, core::opt<allocation_ca
 template <typename... Ts>
 auto* chain_setup(core::tuple<Ts...>& chain) {
     if constexpr (chain.size() > 0) {
-        core::idx_seq<chain.size()>{}.foreach ([&](auto idx) {
+        core::make_idx_seq<chain.size()>().foreach ([&](auto idx) {
             if constexpr (idx + 1 < chain.size()) {
                 chain[idx].next = &chain[idx + core::size_c<1>];
             }
         });
         return &chain[core::size_c<0>];
     } else {
-        return nullptr;
+        return (void*)nullptr;
     }
 }
 } // namespace vk

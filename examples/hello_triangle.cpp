@@ -138,7 +138,7 @@ int main() {
                 .version        = {.major = 1, .minor = 0, .patch = 0},
                 .engine_name    = "Test Engine",
                 .engine_version = {.major = 1, .minor = 0, .patch = 0},
-                .api_version    = {.major = 1, .minor = 3, .patch = 0},
+                .api_version    = {.major = 1, .minor = 4, .patch = 0},
             },
         .extensions = required_extensions(),
         .layers     = {"VK_LAYER_KHRONOS_validation"},
@@ -159,7 +159,7 @@ int main() {
         vk::info::device{
             .queues     = {{.family_index = families.graphics}, {.family_index = families.present}},
             .extensions = {"VK_KHR_swapchain"},
-            .features   = {.shader_clip_distance = true, .shader_cull_distance = true},
+            //.features   = {.shader_clip_distance = true, .shader_cull_distance = true},
             .chained = core::tuple{vk::physical_device_timeline_semaphore_features{.timeline_semaphore = true}},
         }
     );
@@ -252,10 +252,8 @@ int main() {
         }
     );
 
-    auto pipeline_layout = dev.create_pipeline_layout(vk::info::pipeline_layout{});
-
-    namespace state = vk::info::pipeline::state;
-
+    namespace state        = vk::info::pipeline::state;
+    auto pipeline_layout   = dev.create_pipeline_layout(vk::info::pipeline_layout{});
     auto graphics_pipeline = dev.create_graphics_pipeline(
         null,
         vk::info::graphics_pipeline{
@@ -291,7 +289,6 @@ int main() {
                  .dynamic        = {state::dynamic{.dynamic_states = {vk::dynamic_state::viewport, vk::dynamic_state::scissor}}}},
             .layout      = pipeline_layout,
             .render_pass = render_pass,
-            .subpass     = 0,
         }
     );
 
@@ -407,7 +404,7 @@ int main() {
 
         frame = (frame + 1) % frames_in_flight;
 
-        log.warn_update(0, "{} {}", fps.calculate(), timeline_value);
+        log.warn("{} {}", fps.calculate(), timeline_value);
     }
 
     dev.wait_idle().throws();
