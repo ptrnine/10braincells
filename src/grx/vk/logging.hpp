@@ -20,6 +20,17 @@ enum class log_severity {
 };
 
 namespace details {
+    util::log_level severity_to_level(vk::log_severity log_severity) {
+        switch (log_severity) {
+        case log_severity::debug: return util::log_level::debug;
+        case log_severity::info: return util::log_level::info;
+        case log_severity::performance_warning:
+        case log_severity::warning: return util::log_level::warn;
+        case log_severity::error:
+        default: return util::log_level::error;
+        }
+    }
+
     util::log_level get_log_level(vk::debug_report_ext_flags flags) {
         if (flags.test(vk::debug_report_ext_flag::error_ext)) {
             return util::log_level::error;

@@ -13,6 +13,8 @@ codegen(vulkan_api_target
         "${CMAKE_BINARY_DIR}/src/grx/vk/function_types.cg.hpp"
         "${CMAKE_BINARY_DIR}/src/grx/vk/physical_device.cg.hpp"
         "${CMAKE_BINARY_DIR}/src/grx/vk/device.cg.hpp"
+        "${CMAKE_BINARY_DIR}/src/grx/vk/device_memory.cg.hpp"
+        "${CMAKE_BINARY_DIR}/src/grx/vk/buffer.cg.hpp"
         "${CMAKE_BINARY_DIR}/src/grx/vk/swapchain.cg.hpp"
         "${CMAKE_BINARY_DIR}/src/grx/vk/image_view.cg.hpp"
         "${CMAKE_BINARY_DIR}/src/grx/vk/shader_module.cg.hpp"

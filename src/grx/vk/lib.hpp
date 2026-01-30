@@ -115,8 +115,10 @@ public:
         return res;
     }
 
-    void destroy_instance_raw(instance instance, const allocation_callbacks* allocator = nullptr) const {
+    void destroy_instance_raw([[maybe_unused]] instance instance, [[maybe_unused]] const allocation_callbacks* allocator = nullptr) const {
+#if !__has_feature(address_sanitizer) && !defined(__SANITIZE_ADDRESS__)
         _destroy_instance.call(instance, allocator);
+#endif
     }
 
     void load_functions(vk::instance instance, auto&... func_holders) const {
@@ -131,6 +133,10 @@ public:
 
     explicit operator bool() const noexcept {
         return _lib.not_default();
+    }
+
+    u64 lib_id() const {
+        return reinterpret_cast<u64>(_lib.get());
     }
 
 private:

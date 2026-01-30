@@ -110,7 +110,7 @@ if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
 endif()
 
 if (ENABLE_ASAN)
-    list(APPEND _cxx_flags -fsanitize=address)
+    list(APPEND _cxx_flags -fsanitize=address -fno-omit-frame-pointer)
     add_link_options($<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address>)
 endif()
 

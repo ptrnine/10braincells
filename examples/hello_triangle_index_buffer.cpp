@@ -1,10 +1,12 @@
 #include <grx/vk.hpp>
 #include <grx/vk/constants.cg.hpp>
+#include <grx/vk/device_memory.cg.hpp>
 #include <grx/vk/enums.cg.hpp>
 #include <grx/vk/flags.cg.hpp>
 #include <grx/vk/info.hpp>
 #include <grx/vk/structs.cg.hpp>
 #include <util/fps_counter.hpp>
+#include <grx/basic_types.hpp>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -128,10 +130,34 @@ vk::physical_device_t find_suitable_physical_device(const vk::instance_t& instan
     throw std::runtime_error("Suitable physical device not found");
 }
 
+struct vertex {
+    grx::vec2f    pos;
+    grx::clrf_rgb color;
+
+    static constexpr vk::vertex_input_binding_description binding_description() {
+        return {.binding = 0, .stride = sizeof(vertex), .input_rate = vk::vertex_input_rate::vertex};
+    }
+
+    static constexpr auto attribute_description() {
+        return core::array{
+            vk::vertex_input_attribute_description{0, 0, vk::format::r32g32_sfloat, offsetof(vertex, pos)},
+            vk::vertex_input_attribute_description{1, 0, vk::format::r32g32b32_sfloat, offsetof(vertex, color)},
+        };
+    }
+};
 
 class hello_triangle {
 public:
     util::logger& log = util::glog();
+
+    std::vector<vertex> vertices = {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+    };
+
+    std::vector<u32> indices = {0, 1, 2, 2, 3, 0};
 
     hello_triangle() {
         glfwInit();
@@ -180,8 +206,6 @@ public:
         graphics_queue = dev.get_device_queue(families.graphics, 0);
         present_queue  = dev.get_device_queue(families.present, 0);
 
-        swapchain_support        = query_swapchain_support(physical_device, surface);
-        swapchain_surface_format = swapchain_support.select_format();
         create_swapchain();
 
         namespace state   = vk::info::pipeline::state;
@@ -234,6 +258,9 @@ public:
             }
         );
 
+        create_vertex_buffer();
+        create_index_buffer();
+
         command_buffers = dev.allocate_command_buffers(
             vk::info::command_buffer{
                 .command_pool         = command_pool,
@@ -241,6 +268,11 @@ public:
                 .command_buffer_count = frames_in_flight,
             }
         );
+    }
+
+    ~hello_triangle() {
+        glfwDestroyWindow(wnd);
+        glfwTerminate();
     }
 
     void run() {
@@ -304,7 +336,9 @@ public:
                         }}
                     );
                     buff->set_scissor(0, array{vk::rect2d{.offset = {.x = 0, .y = 0}, .extent = swapchain_extent}});
-                    buff->draw(3, 1, 0, 0);
+                    buff->bind_vertex_buffer(0, vertex_b.buffer, 0);
+                    buff->bind_index_buffer(index_b.buffer, 0, vk::index_type::uint32);
+                    buff->draw_indexed(u32(indices.size()), 1, 0, 0, 0);
                 }
 
                 transition_image_layout(
@@ -402,7 +436,9 @@ private:
     }
 
     void create_swapchain() {
-        swapchain_extent = swapchain_support.select_extent(wnd);
+        auto swapchain_support   = query_swapchain_support(physical_device, surface);
+        swapchain_surface_format = swapchain_support.select_format();
+        swapchain_extent         = swapchain_support.select_extent(wnd);
 
         swapchain = dev.create_swapchain(
             vk::info::swapchain{
@@ -460,6 +496,64 @@ private:
         create_swapchain();
     }
 
+    struct buffer_result {
+        vk::buffer_t        buffer;
+        vk::device_memory_t memory;
+    };
+
+    buffer_result create_buffer(vk::device_size_t size, vk::buffer_usage_flags usage, vk::memory_property_flags properties) {
+        auto buff         = dev.create_buffer({.size = size, .usage = usage, .sharing_mode = vk::sharing_mode::exclusive});
+        auto requirements = buff.memory_requirements();
+        auto memory =
+            dev.allocate_memory({.allocation_size = requirements.size, .memory_type_index = find_memory_type(requirements.memory_type_bits, properties)});
+        buff.bind_memory(memory, 0).throws();
+        return {.buffer = mov(buff), .memory = mov(memory)};
+    }
+
+    void copy_buffer(vk::buffer_t& src_buffer, vk::buffer_t& dst_buffer, vk::device_size_t size) {
+        auto cmd_buffs = dev.allocate_command_buffers({.command_pool = command_pool, .level = vk::command_buffer_level::primary, .command_buffer_count = 1});
+        if (auto cmd_buff = vk::with_buffer(cmd_buffs[0], {.flags = vk::command_buffer_usage_flags::one_time_submit})) {
+            cmd_buff->copy_buffer(src_buffer, dst_buffer, std::vector{vk::buffer_copy{.src_offset = 0, .dst_offset = 0, .size = size}});
+        }
+        graphics_queue.submit(vk::info::submit{.command_buffers = cmd_buffs.handles()}).throws();
+        graphics_queue.wait_idle().throws();
+    }
+
+    void create_vertex_buffer() {
+        auto size = sizeof(vertices[0]) * vertices.size();
+        auto staging =
+            create_buffer(size, vk::buffer_usage_flags::transfer_src, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+        auto data_staging = staging.memory.map_memory(0, size).value();
+        std::memcpy(data_staging, vertices.data(), size);
+        staging.memory.unmap_memory();
+        vertex_b = create_buffer(size, vk::buffer_usage_flags::transfer_dst | vk::buffer_usage_flags::vertex_buffer, vk::memory_property_flags::device_local);
+        copy_buffer(staging.buffer, vertex_b.buffer, size);
+    }
+
+    void create_index_buffer() {
+        auto size = sizeof(indices[0]) * indices.size();
+        auto staging =
+            create_buffer(size, vk::buffer_usage_flags::transfer_src, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+        auto data_staging = staging.memory.map_memory(0, size).value();
+        std::memcpy(data_staging, indices.data(), size);
+        staging.memory.unmap_memory();
+        index_b = create_buffer(size, vk::buffer_usage_flags::transfer_dst | vk::buffer_usage_flags::index_buffer, vk::memory_property_flags::device_local);
+        copy_buffer(staging.buffer, index_b.buffer, size);
+    }
+
+    u32 find_memory_type(u32 type_filter, vk::memory_property_flags properties) {
+        auto memory_properties = physical_device.memory_properties();
+        auto mem_types = std::span{memory_properties.memory_types, memory_properties.memory_type_count};
+
+        for (auto&& [idx, mem_type] : with_index(mem_types)) {
+            if (type_filter & (1 << idx) && mem_type.property_flags.test(properties)) {
+                return u32(idx);
+            }
+        }
+
+        throw std::runtime_error("failed to find suitable memory type!");
+    }
+
 private:
     GLFWwindow*                   wnd;
     vk::vk_lib                    lib;
@@ -471,13 +565,16 @@ private:
     vk::queue_t                   graphics_queue;
     vk::queue_t                   present_queue;
     vk::swapchain_t               swapchain;
-    swapchain_details             swapchain_support;
     vk::surface_format_khr        swapchain_surface_format;
     vk::extent2d                  swapchain_extent;
     std::vector<vk::image>        swapchain_images;
     std::vector<vk::image_view_t> image_views;
     vk::pipeline_layout_t         pipeline_layout;
     vk::pipeline_t                graphics_pipeline;
+
+    buffer_result vertex_b;
+    buffer_result index_b;
+
     vk::command_pool_t            command_pool;
     vk::command_buffer_store_t    command_buffers;
 

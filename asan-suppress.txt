@@ -1,0 +1,2 @@
+leak:libVkLayer_khronos_validation.so
+leak:libxcb.so

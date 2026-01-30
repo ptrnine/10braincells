@@ -7,11 +7,7 @@ class surface_t {
 public:
     surface_t() = default;
 
-    surface_t(const instance_t& instance, surface_khr surface): inst(&instance), handle(surface) {
-        f.pass_to([&](auto&... functions) {
-            inst->load_functions_cached(functions...);
-        });
-    }
+    surface_t(const instance_t& instance, surface_khr surface): inst(&instance), handle(surface), f(*inst) {}
 
     ~surface_t() {
         if (handle.not_default()) {
@@ -27,8 +23,8 @@ public:
     }
 
 private:
-    const instance_t*                            inst;
-    core::moveonly_trivial<surface_khr, nullptr> handle;
-    core::tuple<cmd::destroy_surface_khr_t>      f;
+    const instance_t*                             inst;
+    core::moveonly_trivial<surface_khr, nullptr>  handle;
+    function_provider<cmd::destroy_surface_khr_t> f;
 };
 } // namespace vk

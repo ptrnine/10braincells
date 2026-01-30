@@ -357,8 +357,8 @@ int main() {
                 vk::subpass_contents::_inline
             );
 
-            buff->cmd_bind_pipeline(vk::pipeline_bind_point::graphics, graphics_pipeline);
-            buff->cmd_set_viewport(
+            buff->bind_pipeline(vk::pipeline_bind_point::graphics, graphics_pipeline);
+            buff->set_viewport(
                 0,
                 array{vk::viewport{
                     .x         = 0.f,
@@ -369,8 +369,8 @@ int main() {
                     .max_depth = 1.f,
                 }}
             );
-            buff->cmd_set_scissor(0, array{vk::rect2d{.offset = {.x = 0, .y = 0}, .extent = swapchain_extent}});
-            buff->cmd_draw(3, 1, 0, 0);
+            buff->set_scissor(0, array{vk::rect2d{.offset = {.x = 0, .y = 0}, .extent = swapchain_extent}});
+            buff->draw(3, 1, 0, 0);
         }
 
         /* Queue submit */

@@ -50,7 +50,7 @@ void generate_physical_device_header(const pugi::xml_node& registry, cg::vk::ext
         {.name = "get_physical_device_surface_capabilities_khr"},
         {.name = "get_physical_device_surface_formats_khr"},
         {.name = "get_physical_device_surface_present_modes_khr"},
-        {.name = "create_device", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "device_t"},
+        {.name = "create_device", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "device_t", .func_type = cg::vk::member_func_type::ctor},
         {.name = "enumerate_device_layer_properties"},
         {.name = "enumerate_device_extension_properties"},
         {.name = "get_physical_device_display_properties_khr"},
@@ -113,23 +113,25 @@ void generate_logical_device_header(const pugi::xml_node& registry, cg::vk::exte
     c.handle.type   = "vk::device";
     c.name          = "device_t";
     c.functions     = {
-        {.name = "create_swapchain_khr", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "swapchain_t"},
-        {.name = "create_image_view", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "image_view_t"},
-        {.name = "create_shader_module", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "shader_module_t"},
-        {.name = "create_pipeline_layout", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "pipeline_layout_t"},
-        {.name = "create_graphics_pipelines", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "pipeline_t"},
-        {.name = "create_render_pass", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "render_pass_t"},
-        {.name = "create_framebuffer", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "framebuffer_t"},
-        {.name = "create_command_pool", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "command_pool_t"},
-        {.name = "allocate_command_buffers", .type = cg::vk::gen_type::full_plus_declare_interface},
-        {.name = "create_semaphore", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "semaphore_t"},
-        {.name = "create_fence", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "fence_t"},
-        {.name = "get_device_queue", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "queue_t"},
-        {.name = "destroy_device", .type = cg::vk::gen_type::destructor},
+        {.name = "create_swapchain_khr", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "swapchain_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_image_view", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "image_view_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_shader_module", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "shader_module_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_pipeline_layout", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "pipeline_layout_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_graphics_pipelines", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "pipeline_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_render_pass", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "render_pass_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_framebuffer", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "framebuffer_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_command_pool", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "command_pool_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "allocate_command_buffers", .type = cg::vk::gen_type::full_plus_declare_interface, .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_semaphore", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "semaphore_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_fence", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "fence_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "get_device_queue", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "queue_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "destroy_device", .func_type = cg::vk::member_func_type::dtor},
         {.name = "device_wait_idle"},
         {.name = "wait_for_fences", .type = cg::vk::gen_type::only_cache_this},
         {.name = "reset_fences", .type = cg::vk::gen_type::only_cache_this},
         {.name = "wait_semaphores", .type = cg::vk::gen_type::only_cache_this},
+        {.name = "allocate_memory", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "device_memory_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_buffer", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "buffer_t", .func_type = cg::vk::member_func_type::ctor},
     };
     c.func_prefixes  = {"device_"};
     c.func_postfixes = {"_khr", "_ext"};
@@ -177,7 +179,7 @@ void generate_swapchain_header(const pugi::xml_node& registry, cg::vk::external_
     c.handle.type        = "vk::swapchain_khr";
     c.name               = "swapchain_t";
     c.functions          = {
-        {.name = "destroy_swapchain_khr", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_swapchain_khr", .func_type = cg::vk::member_func_type::dtor},
         {.name = "get_swapchain_images_khr"},
         {.name = "acquire_next_image_khr", .type = cg::vk::gen_type::only_cache_this},
     };
@@ -215,7 +217,7 @@ void generate_image_view_header(const pugi::xml_node& registry, cg::vk::external
     c.handle.type        = "vk::image_view";
     c.name               = "image_view_t";
     c.functions          = {
-        {.name = "destroy_image_view", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_image_view", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -238,7 +240,7 @@ void generate_shader_module_header(const pugi::xml_node& registry, cg::vk::exter
     c.handle.type        = "vk::shader_module";
     c.name               = "shader_module_t";
     c.functions          = {
-        {.name = "destroy_shader_module", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_shader_module", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -261,7 +263,7 @@ void generate_pipeline_layout_header(const pugi::xml_node& registry, cg::vk::ext
     c.handle.type        = "vk::pipeline_layout";
     c.name               = "pipeline_layout_t";
     c.functions          = {
-        {.name = "destroy_pipeline_layout", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_pipeline_layout", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -284,7 +286,7 @@ void generate_pipeline_header(const pugi::xml_node& registry, cg::vk::external_g
     c.handle.type        = "vk::pipeline";
     c.name               = "pipeline_t";
     c.functions          = {
-        {.name = "destroy_pipeline", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_pipeline", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -314,7 +316,7 @@ void generate_render_pass_header(const pugi::xml_node& registry, cg::vk::externa
     c.handle.type        = "vk::render_pass";
     c.name               = "render_pass_t";
     c.functions          = {
-        {.name = "destroy_render_pass", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_render_pass", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -337,7 +339,7 @@ void generate_framebuffer_header(const pugi::xml_node& registry, cg::vk::externa
     c.handle.type        = "vk::framebuffer";
     c.name               = "framebuffer_t";
     c.functions          = {
-        {.name = "destroy_framebuffer", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_framebuffer", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -360,7 +362,7 @@ void generate_command_pool_header(const pugi::xml_node& registry, cg::vk::extern
     c.handle.type        = "vk::command_pool";
     c.name               = "command_pool_t";
     c.functions          = {
-        {.name = "destroy_command_pool", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_command_pool", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -391,13 +393,23 @@ void generate_command_buffer_header(const pugi::xml_node& registry, cg::vk::exte
         {.name = "cmd_set_viewport"},
         {.name = "cmd_set_scissor"},
         {.name = "cmd_draw"},
+        {.name = "cmd_draw_indexed"},
         {.name = "cmd_end_render_pass"},
         {.name = "cmd_pipeline_barrier"},
         {.name = "cmd_pipeline_barrier2"},
         {.name = "cmd_begin_rendering"},
         {.name = "cmd_end_rendering"},
+        {.name = "cmd_copy_buffer"},
+        {.name = "cmd_bind_vertex_buffers"},
+        {.name = "cmd_bind_index_buffer"},
     };
-    c.func_prefixes  = {};
+    c.definitions.push_back(
+        "auto bind_vertex_buffer(u32 first_binding, const vk::buffer& buffer, device_size_t offset) {\n"
+        "        return bind_vertex_buffers(first_binding, std::span{&buffer, 1}, std::span{&offset, 1});\n"
+        "    }\n"
+
+    );
+    c.func_prefixes  = {"cmd_"};
     c.func_postfixes = {"_khr", "_ext", "_command_buffer"};
     c.copyable       = true;
     out.write(
@@ -418,7 +430,7 @@ void generate_semaphore_header(const pugi::xml_node& registry, cg::vk::external_
     c.handle.type        = "vk::semaphore";
     c.name               = "semaphore_t";
     c.functions          = {
-        {.name = "destroy_semaphore", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_semaphore", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -455,7 +467,7 @@ void generate_fence_header(const pugi::xml_node& registry, cg::vk::external_gene
     c.handle.type        = "vk::fence";
     c.name               = "fence_t";
     c.functions          = {
-        {.name = "destroy_fence", .type = cg::vk::gen_type::destructor},
+        {.name = "destroy_fence", .func_type = cg::vk::member_func_type::dtor},
     };
     c.func_prefixes  = {};
     c.func_postfixes = {"_khr", "_ext"};
@@ -480,16 +492,67 @@ void generate_queue_header(const pugi::xml_node& registry, cg::vk::external_gene
     c.functions          = {
         {.name = "queue_submit"},
         {.name = "queue_present_khr"},
+        {.name = "queue_wait_idle"},
     };
     c.func_prefixes  = {"queue_"};
     c.func_postfixes = {"_khr", "_ext"};
     c.copyable       = false;
 
     c.definitions.push_back(
-        "auto submit(const vk::submit_info& submits, vk::fence fence) const {\n"
+        "auto submit(const vk::submit_info& submits, vk::fence fence = {}) const {\n"
         "        return submit(std::span{&submits, 1}, fence);\n"
         "   }\n"
     );
+
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_device_memory_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "sc";
+    c.handle.type        = "vk::device_memory";
+    c.name               = "device_memory_t";
+    c.functions          = {
+        {.name = "map_memory"},
+        {.name = "unmap_memory"},
+        {.name = "free_memory", .func_type = cg::vk::member_func_type::dtor},
+    };
+    c.copyable       = false;
+
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_buffer_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "sc";
+    c.handle.type        = "vk::buffer";
+    c.name               = "buffer_t";
+    c.functions          = {
+        {.name = "get_buffer_memory_requirements"},
+        {.name = "get_buffer_memory_requirements2"},
+        {.name = "bind_buffer_memory", .rename = "bind_memory"},
+        {.name = "destroy_buffer", .func_type = cg::vk::member_func_type::dtor},
+    };
+    c.func_prefixes = {"get_buffer_"};
+    c.copyable      = false;
 
     out.write(
         "#pragma once\n"
@@ -529,6 +592,7 @@ void tbc_main(vulkan_cmd<> args) {
             "rendering_info",
             "rendering_attachment_info",
             "dependency_info",
+            "buffer_create_info",
         },
         openfile("structs.cg.hpp")
     );
@@ -554,6 +618,8 @@ void tbc_main(vulkan_cmd<> args) {
     generate_semaphore_header(registry, eg, openfile("semaphore.cg.hpp"));
     generate_fence_header(registry, eg, openfile("fence.cg.hpp"));
     generate_queue_header(registry, eg, openfile("queue.cg.hpp"));
+    generate_device_memory_header(registry, eg, openfile("device_memory.cg.hpp"));
+    generate_buffer_header(registry, eg, openfile("buffer.cg.hpp"));
 }
 
 #include <util/tbc_main.hpp>

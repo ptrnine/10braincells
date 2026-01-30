@@ -101,6 +101,7 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
     function_cpp_args res;
 
     std::set<std::string> remove_ints;
+    std::vector<core::u32> optional_args_idx;
 
     for (auto&& arg : args) {
         if (!arg.type.starts_with("const ") && arg.type.ends_with("*") && res.result.bind_size != arg.name) {
@@ -158,11 +159,24 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
             a.type     = arg.type;
             a.name     = arg.name;
             a.bind_arg = arg.name;
+            if (arg.optional == "true") {
+                a.default_val = "{}";
+            }
         }
     }
 
     for (auto&& arg : remove_ints) {
         std::erase_if(res.args, [&](const function_cpp_arg& a) { return a.name == arg; });
+    }
+
+    bool opts_goon = true;
+    for (size_t i = res.args.size() - 1; i < res.args.size(); --i) {
+        if (res.args[i].default_val == "{}") {
+            if (!opts_goon)
+                res.args[i].default_val.clear();
+        } else {
+            opts_goon = false;
+        }
     }
 
     return res;

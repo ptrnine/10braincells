@@ -193,7 +193,11 @@ void fprintf(std::ostream& os, std::string_view format_str, Ts&&... args) {
         if (on_fmt) {
             if (c == '}') {
                 // TODO: formats
-                //auto fmt = format_str.substr(fmt_start, fmt_size);
+                auto fmt = format_str.substr(fmt_start, fmt_size);
+                if (fmt == "x") {
+                    os << std::hex;
+                }
+
                 on_fmt = false;
                 if constexpr (I < sizeof...(Ts)) {
                     print_any(os, std::get<I>(std::tuple<Ts&&...>(args...)));

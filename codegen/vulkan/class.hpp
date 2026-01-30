@@ -25,17 +25,20 @@ enum gen_type {
     full = 0,
     full_plus_declare_interface,
     only_cache_this,
-    destructor,
 };
+
+enum member_func_type { normal = 0, ctor, dtor };
 
 struct member_function {
     bool operator<(const member_function& mf) const {
         return name < mf.name;
     }
 
-    std::string name;
-    gen_type type = gen_type::full;
+    std::string            name;
+    gen_type               type               = gen_type::full;
     core::opt<std::string> external_interface = {};
+    std::string            rename             = {};
+    member_func_type       func_type          = member_func_type::normal;
 };
 
 struct external_generated {
@@ -85,12 +88,8 @@ struct class_instance_dependent {
             "class ${name} {\n"
             "public:\n"
             "    ${name}() noexcept = default;\n"
-            "    ${name}(const ${itype}& i${iname}, ${htype} i${hname}): ${iname}(&i${iname}), ${hname}(i${hname}) {\n"
-            "        f.pass_to([&](auto&... functions) {\n"
-            "            ${iname}->load_functions_cached(functions...);\n"
-            "        });\n"
-            "     }\n" |
-            cfg
+            "    ${name}(const ${itype}& i${iname}, ${htype} i${hname}): ${iname}(&i${iname}), ${hname}(i${hname}), " | cfg,
+            instance.type == "instance_t" ? ("f(*${iname}) {}\n" | cfg) : ("f(${iname}->instance()) {}\n" | cfg)
         );
         if (!copyable) {
             out.write(
@@ -100,10 +99,6 @@ struct class_instance_dependent {
             );
         }
         out.write(("\n"
-                   "    void load_functions_cached(auto&... functions) const {\n"
-                   "        ${iname}->load_functions_cached(functions...);\n"
-                   "    }\n"
-                   "\n"
                    "    ${htype} handle() const {\n"
                    "        return ${hname};\n"
                    "    }\n"
@@ -171,7 +166,7 @@ struct class_instance_dependent {
                 }
             }
 
-            if (function_info->type == gen_type::destructor) {
+            if (function_info->func_type == member_func_type::dtor) {
                 auto dtor_args = args;
                 for (auto& arg : dtor_args.args) {
                     /* TODO: pass allocation_callbacks to destructor */
@@ -184,6 +179,7 @@ struct class_instance_dependent {
                 out.write("    ~${name}() {\n" | cfg);
                 if (!copyable) {
                     out.write("        if (${hname}.not_default()) {\n" | cfg,
+                              "            instance().logger().info(\"Destroy ${htype} handle={}\", ${hname}.get());\n" | cfg,
                               "            f[cmd::",
                               function_info->name,
                               "].call(",
@@ -215,7 +211,7 @@ struct class_instance_dependent {
                 generated_function_name += "_raw";
             }
 
-            out.write("    auto ${name}(" | subst{subst_entry{"name", generated_function_name}},
+            out.write("    auto ${name}(" | subst{subst_entry{"name", function_info->rename.empty() ? generated_function_name : function_info->rename}},
                       args.arg_defs({handle.name, instance.name + "->handle()"}) | fold(", "),
                       ") const {\n"
                       "        auto func = f[cmd::${fname}];\n" |
@@ -276,6 +272,19 @@ struct class_instance_dependent {
                       "func.call(",
                       pass_cpp_args_to_c(f, args, false) | fold(", "),
                       ");\n");
+            if (function_info->func_type == member_func_type::ctor) {
+                if (f.can_fail()) {
+                    out.write("        if (instance().logger().will_be_logged(util::log_level::info)) {\n"
+                              "            if (res.ok()) {\n");
+                    out.write("                instance().logger().info(\"Create ${rtype} handle" | subst{subst_entry{"rtype", args.result.type}},  std::string_view(args.result.bind_size.empty() ? "" : "s"), "={}\", res.value_unsafe);\n");
+                    out.write("            } else {\n"
+                              "                instance().logger().info(\"Failed to create ${rtype} handle vk_result={}\", res.rc);\n"
+                              "            }\n"
+                              "        }\n" | subst{subst_entry{"rtype", args.result.type}});
+                } else {
+                    out.write("        instance().logger().info(\"Create ${rtype} handle={}\", res);\n" | subst{subst_entry{"rtype", args.result.type}});
+                }
+            }
             if (f.can_fail() || !args.result.type.empty()) {
                 out.write("        return res;\n");
             }
@@ -336,6 +345,8 @@ struct class_instance_dependent {
                     "    ${name}& operator=(${name}&& rhs) noexcept {\n"
                     "        if (${hname}.not_default()) {\n" |
                         cfg,
+
+                    "            instance().logger().info(\"Destroy ${htype} handle={}\", ${hname}.get());\n" | cfg,
                     "            f[cmd::",
                     meet_dtor->name,
                     "].call(",
@@ -354,6 +365,18 @@ struct class_instance_dependent {
             }
         }
 
+        if (instance.type == "instance_t") {
+            out.write("    const instance_t& instance() const {\n"
+                      "        return *${iname};\n"
+                      "    }\n"
+                      "\n" | cfg);
+        } else {
+            out.write("    const instance_t& instance() const {\n"
+                      "        return ${iname}->instance();\n"
+                      "    }\n"
+                      "\n" | cfg);
+        }
+
         for (auto& def : definitions)
             out.write("    ", def, "\n");
 
@@ -367,7 +390,7 @@ struct class_instance_dependent {
             "    const ${itype}* ${iname};\n"
             "    ${hstore} ${hname};\n"
             "\n"
-            "    core::tuple</* start */\n" |
+            "    function_provider</* start */\n" |
                 cfg,
             func_types,
             "                /* end */ core::null_t>\n"

@@ -478,11 +478,11 @@ struct render_pass_begin {
             .render_pass       = render_pass,
             .framebuffer       = framebuffer,
             .render_area       = render_area,
-            .clear_value_count = u32(clear_values.size()),
+            .clear_value_count = u32(core::visit(clear_values, core::overloaded{[](auto&& vec) { return vec.size(); }})),
             .clear_values      = nullptr,
         };
 
-        if (clear_values.size()) {
+        if (core::visit(clear_values, core::overloaded{[](auto&& vec) { return vec.size(); }})) {
             core::visit(
                 clear_values,
                 core::overloaded{
@@ -507,9 +507,9 @@ struct submit {
         core::opt<u64> timeline_value = {};
     };
 
-    std::vector<wait_info>          wait_semaphores;
-    std::vector<vk::command_buffer> command_buffers;
-    std::vector<signal_info>        signal_semaphores;
+    std::vector<wait_info>              wait_semaphores = {};
+    std::span<const vk::command_buffer> command_buffers;
+    std::vector<signal_info>            signal_semaphores = {};
 
     mutable std::vector<semaphore>             _m_wait_semaphores      = {};
     mutable std::vector<pipeline_stage_flags>  _m_wait_flags           = {};

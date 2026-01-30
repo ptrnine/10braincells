@@ -9,18 +9,10 @@ public:
     command_buffer_store_t() = default;
 
     command_buffer_store_t(const device_t& idev, vk::command_pool ipool, std::vector<vk::command_buffer> ihandles):
-        dev(&idev), pool(ipool), _handles(core::mov(ihandles)) {
-        f.pass_to([&](auto&... functions) {
-            dev->load_functions_cached(functions...);
-        });
-    }
+        dev(&idev), pool(ipool), _handles(core::mov(ihandles)), f(dev->instance()) {}
 
     command_buffer_store_t(command_buffer_store_t&&) noexcept = default;
     command_buffer_store_t& operator=(command_buffer_store_t&&) noexcept = default;
-
-    void load_functions_cached(auto&... functions) const {
-        dev->load_functions_cached(functions...);
-    }
 
     std::span<const vk::command_buffer> handles() const {
         return _handles;
@@ -28,6 +20,7 @@ public:
 
     ~command_buffer_store_t() {
         if (!_handles.empty()) {
+            dev->instance().logger().info("Destroy std::vector<vk::command_buffer> handles={}", _handles);
             f[cmd::free_command_buffers].call(dev->handle(), pool, core::u32(_handles.size()), _handles.data());
         }
     }
@@ -45,7 +38,7 @@ private:
     vk::command_pool pool;
     std::vector<vk::command_buffer> _handles;
 
-    core::tuple</* start */
+    function_provider</* start */
                 cmd::free_command_buffers_t,
                 /* end */ core::null_t>
     f;
@@ -57,7 +50,12 @@ auto device_t::allocate_command_buffers(const vk::command_buffer_allocate_info& 
 
 class with_buffer {
 public:
-    with_buffer(command_buffer_t buffer, core::opt<command_buffer_reset_flags> reset = {}, const vk::command_buffer_begin_info& begin_info = {}):
+    with_buffer(command_buffer_t buffer, const vk::command_buffer_begin_info& begin_info = {}):
+        buff(buffer) {
+        buff.begin(begin_info).throws();
+    }
+
+    with_buffer(command_buffer_t buffer, core::opt<command_buffer_reset_flags> reset, const vk::command_buffer_begin_info& begin_info = {}):
         buff(buffer) {
         if (reset) {
             buff.reset(*reset).throws();
@@ -91,11 +89,11 @@ private:
 class with_render_pass {
 public:
     with_render_pass(with_buffer& buffer, const vk::render_pass_begin_info& begin_info, vk::subpass_contents contents): buff(buffer) {
-        buff->cmd_begin_render_pass(begin_info, contents);
+        buff->begin_render_pass(begin_info, contents);
     }
 
     ~with_render_pass() {
-        buff->cmd_end_render_pass();
+        buff->end_render_pass();
     }
 
     with_buffer& operator*() {
@@ -117,11 +115,11 @@ private:
 class with_rendering {
 public:
     with_rendering(with_buffer& buffer, const vk::rendering_info& info): buff(buffer) {
-        buff->cmd_begin_rendering(info);
+        buff->begin_rendering(info);
     }
 
     ~with_rendering() {
-        buff->cmd_end_rendering();
+        buff->end_rendering();
     }
 
     with_buffer& operator*() {
