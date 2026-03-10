@@ -3,6 +3,8 @@
 #include <atomic>
 #include <core/concepts/trivial_span_like.hpp>
 #include <core/errc.hpp>
+#include <core/io/basic_types.hpp>
+#include <core/io/file.hpp>
 #include <core/opt.hpp>
 #include <core/traits/is_ref.hpp>
 #include <sys/lseek.hpp>
@@ -10,8 +12,11 @@
 #include <sys/statx.hpp>
 #include <sys/syscall.hpp>
 #include <sys/write.hpp>
-#include <core/io/file.hpp>
-#include <core/io/basic_types.hpp>
+
+#ifndef DISABLE_ASYNC
+#include <core/async/read.hpp>
+#include <core/async/write.hpp>
+#endif
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -52,6 +57,16 @@ protected:
         pos += sz;
         return sz;
     }
+
+#ifndef DISABLE_ASYNC
+    task<size_t> handle_write_async(const void* data, size_t size) {
+        co_return handle_write(data, size);
+    }
+
+    task<size_t> handle_read_async(void* data, size_t size) {
+        co_return handle_read(data, size);
+    }
+#endif
 
     constexpr size_t handle_read(core::trivial auto& data) {
         if (storage.size() - pos < sizeof(data))
@@ -115,6 +130,21 @@ protected:
         else
             return 0;
     }
+
+#ifndef DISABLE_ASYNC
+    task<size_t> handle_write_async(const void* data, size_t size) {
+        co_return (co_await write(_fd, data, size)).get();
+    }
+
+    task<size_t> handle_read_async(void* data, size_t size) {
+        auto res = co_await coro::read(_fd, data, size);
+        if (!is_pipe_like() || res) {
+            co_return res.get();
+        } else {
+            co_return 0;
+        }
+    }
+#endif
 
     off_t handle_seek(off_t offset, seek_whence whence) {
         return sys::lseek(_fd, offset, whence).get();

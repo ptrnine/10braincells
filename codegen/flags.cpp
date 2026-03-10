@@ -1,3 +1,5 @@
+#define DISABLE_ASYNC
+
 #include <core/io/std.hpp>
 #include <core/io/mmap.hpp>
 

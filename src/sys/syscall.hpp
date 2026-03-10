@@ -92,7 +92,7 @@ namespace details
         }
 
         constexpr errc unsafe_error() const {
-            return {-_r};
+            return {int(-_r)};
         }
 
         constexpr auto&& unsafe_get(this auto&& it) {

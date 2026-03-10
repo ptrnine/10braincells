@@ -139,7 +139,7 @@ struct vertex {
     }
 
     static constexpr auto attribute_description() {
-        return core::array{
+        return std::vector{
             vk::vertex_input_attribute_description{0, 0, vk::format::r32g32_sfloat, offsetof(vertex, pos)},
             vk::vertex_input_attribute_description{1, 0, vk::format::r32g32b32_sfloat, offsetof(vertex, color)},
         };
@@ -216,16 +216,19 @@ public:
                 .stages =
                     {vk::info::pipeline_shader_stage{
                          .stage  = vk::shader_stage_flag::vertex,
-                         .module = dev.create_shader_module(vk::arg::spirv_file{"vert.spv"}),
-                         .name   = "main",
+                         .module = dev.create_shader_module(vk::arg::spirv_file{"examples/shader.spirv"}),
+                         .name   = "vertMain",
                      },
                      vk::info::pipeline_shader_stage{
                          .stage  = vk::shader_stage_flag::fragment,
-                         .module = dev.create_shader_module(vk::arg::spirv_file{"frag.spv"}),
-                         .name   = "main",
+                         .module = dev.create_shader_module(vk::arg::spirv_file{"examples/shader.spirv"}),
+                         .name   = "fragMain",
                      }},
                 .states =
-                    {.vertex_input   = {state::vertex_input{}},
+                    {.vertex_input   = {state::vertex_input{
+                           .vertex_binding_descriptions   = std::vector{vertex::binding_description()},
+                           .vertex_attribute_descriptions = vertex::attribute_description()
+                     }},
                      .input_assembly = {state::input_assembly{.topology = vk::primitive_topology::triangle_list}},
                      .viewport       = {state::viewport{.viewport_count = 1, .scissor_count = 1}},
                      .rasterization  = {state::rasterization{
@@ -243,7 +246,7 @@ public:
                             .attachments     = {state::color_blend::attachment{.color_write_mask = vk::arg::color_component_rgba}},
                      }},
                      .dynamic        = {state::dynamic{.dynamic_states = {vk::dynamic_state::viewport, vk::dynamic_state::scissor}}}},
-                .layout = pipeline_layout,
+                .layout  = pipeline_layout,
                 .chained = core::tuple{vk::pipeline_rendering_create_info{
                     .color_attachment_count   = 1,
                     .color_attachment_formats = &swapchain_surface_format.format,

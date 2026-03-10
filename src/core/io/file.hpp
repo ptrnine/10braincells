@@ -2,13 +2,20 @@
 
 #include <core/moveonly_trivial.hpp>
 #include <sys/close.hpp>
+#include <sys/eventfd.hpp>
 #include <sys/memfd_create.hpp>
 #include <sys/memfd_secret.hpp>
 #include <sys/open.hpp>
+#include <sys/open_flags.hpp>
 #include <sys/pidfd_open.hpp>
 #include <sys/pipe.hpp>
 
 #include <core/io/basic_types.hpp>
+
+#ifndef DISABLE_ASYNC
+#include <core/async/close.hpp>
+#include <core/async/open.hpp>
+#endif
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -28,8 +35,19 @@ public:
         return {sys::open(fwd(args)...).get()};
     }
 
+#ifndef DISABLE_ASYNC
+    static task<file> open_async(auto&&... args) {
+        auto res = co_await coro::open(fwd(args)...);
+        co_return file{res.get()};
+    }
+#endif
+
     static constexpr file pidfd(sys::pid_t pid, sys::pidfd_open_flags flags = {}) {
         return {sys::pidfd_open(pid, flags).get()};
+    }
+
+    static constexpr file eventfd(u32 init, sys::eventfd_flags flags = {}) {
+        return {sys::eventfd(init, flags).get()};
     }
 
     static constexpr auto pipe(pipeflags flags = {});
@@ -65,6 +83,20 @@ public:
     bool valid() const {
         return _fd.not_default();
     }
+
+    void close() {
+        sys::close(_fd).throw_if_error();
+        _fd.reset();
+    }
+
+#ifndef DISABLE_ASYNC
+    template <typename Lazy = void>
+    task<> close_async() {
+        auto res = co_await coro::close<Lazy>(_fd);
+        res.throw_if_error();
+        _fd.reset();
+    }
+#endif
 
 private:
     constexpr file(sys::fd_t ifd): _fd(ifd) {}

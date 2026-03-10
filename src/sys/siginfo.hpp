@@ -25,8 +25,8 @@ enum class child_status {
 };
 
 struct siginfo_t {
-    int          si_signo; /* Signal number.  */
-    int          si_errno;
+    int          signo; /* Signal number.  */
+    int          errno_;
     child_status code;
 #if __WORDSIZE == 64
     int __pad0; /* Explicit padding.  */
@@ -36,37 +36,37 @@ struct siginfo_t {
 
         /* kill().  */
         struct {
-            __pid_t si_pid; /* Sending process ID.  */
-            __uid_t si_uid; /* Real user ID of sending process.  */
+            __pid_t pid; /* Sending process ID.  */
+            __uid_t uid; /* Real user ID of sending process.  */
         } _kill;
 
         /* POSIX.1b timers.  */
         struct {
-            int      si_tid;     /* Timer ID.  */
-            int      si_overrun; /* Overrun count.  */
-            sigval_t si_sigval;  /* Signal value.  */
+            int      tid;     /* Timer ID.  */
+            int      overrun; /* Overrun count.  */
+            sigval_t sigval;  /* Signal value.  */
         } _timer;
 
         /* POSIX.1b signals.  */
         struct {
-            __pid_t  si_pid;    /* Sending process ID.  */
-            __uid_t  si_uid;    /* Real user ID of sending process.  */
-            sigval_t si_sigval; /* Signal value.  */
+            __pid_t  pid;    /* Sending process ID.  */
+            __uid_t  uid;    /* Real user ID of sending process.  */
+            sigval_t sigval; /* Signal value.  */
         } _rt;
 
         /* SIGCHLD.  */
         struct {
-            __pid_t          si_pid;    /* Which child.	 */
-            __uid_t          si_uid;    /* Real user ID of sending process.  */
-            int              si_status; /* Exit value or signal.  */
-            __kernel_clock_t si_utime;
-            __kernel_clock_t si_stime;
+            __pid_t          pid;    /* Which child.	 */
+            __uid_t          uid;    /* Real user ID of sending process.  */
+            int              status; /* Exit value or signal.  */
+            __kernel_clock_t utime;
+            __kernel_clock_t stime;
         } _sigchld;
 
         /* SIGILL, SIGFPE, SIGSEGV, SIGBUS.  */
         struct {
-            void*     si_addr;     /* Faulting insn/memory ref.  */
-            short int si_addr_lsb; /* Valid LSB of the reported address.  */
+            void*     addr;     /* Faulting insn/memory ref.  */
+            short int addr_lsb; /* Valid LSB of the reported address.  */
             union {
                 /* used when si_code=SEGV_BNDERR */
                 struct {
@@ -80,8 +80,8 @@ struct siginfo_t {
 
         /* SIGPOLL.  */
         struct {
-            long si_band; /* Band event for SIGPOLL.  */
-            int  si_fd;
+            long band; /* Band event for SIGPOLL.  */
+            int  fd;
         } _sigpoll;
     } _sifields;
 
@@ -93,7 +93,7 @@ struct siginfo_t {
     [[nodiscard]]
     constexpr int status() const {
         // NOLINTNEXTLINE
-        return _sifields._sigchld.si_status;
+        return _sifields._sigchld.status;
     }
 };
 } // namespace sys

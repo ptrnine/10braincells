@@ -59,7 +59,7 @@ set_target_properties(self::src PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${self_src_system_includes}"
     INTERFACE_INCLUDE_DIRECTORIES "${self_src_includes};${self_src_system_includes}"
 )
-add_dependencies(self::src as_tuple_target)
+add_dependencies(self::src as_tuple_target io_uring_cg)
 
 add_library(glm::glm INTERFACE IMPORTED)
 set_target_properties(glm::glm PROPERTIES

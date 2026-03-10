@@ -28,44 +28,58 @@ public:
         return BS;
     }
 
-    size_t read(trivial_span_like auto&& data) {
-        constexpr auto element_size = sizeof(*data.data());
-        size_t data_sz = data.size() * element_size;
-
-        if constexpr (BS == 0) {
-            auto read = this->handle_read(data.data(), data_sz);
-            if (read % element_size)
-                throw partial_read_error(read);
-            return read;
-        }
-
-        if (size == 0)
-            take_next();
-
-        if (size == 0)
-            return 0;
-
-        if (data_sz > size) {
-            auto read_from_buff    = relocate_to((u8*)data.data());
-            auto reminder_sz       = data_sz - read_from_buff;
-            auto read_from_backend = this->handle_read((u8*)data.data() + read_from_buff, reminder_sz);
-            auto read              = read_from_buff + read_from_backend;
-            auto len               = read / element_size;
-            if (read % element_size)
-                throw partial_read_error(read);
-            return read;
-        }
-        else {
-            __builtin_memcpy(data.data(), buff + pos, data_sz);
-            size -= data_sz;
-            pos  += data_sz;
-            return data_sz;
-        }
+#define read_tmpl(POSTFIX, RETURN, RESULT, READ_CALL, TAKE_NEXT_CALL)                           \
+    RESULT read##POSTFIX(trivial_span_like auto&& data) {                                       \
+        constexpr auto element_size = sizeof(*data.data());                                     \
+        size_t         data_sz      = data.size() * element_size;                               \
+                                                                                                \
+        if constexpr (BS == 0) {                                                                \
+            auto read = READ_CALL(data.data(), data_sz);                                        \
+            if (read % element_size)                                                            \
+                throw partial_read_error(read);                                                 \
+            RETURN read;                                                                        \
+        }                                                                                       \
+                                                                                                \
+        if (size == 0)                                                                          \
+            TAKE_NEXT_CALL();                                                                   \
+                                                                                                \
+        if (size == 0)                                                                          \
+            RETURN 0;                                                                           \
+                                                                                                \
+        if (data_sz > size) {                                                                   \
+            auto read_from_buff    = relocate_to((u8*)data.data());                             \
+            auto reminder_sz       = data_sz - read_from_buff;                                  \
+            auto read_from_backend = READ_CALL((u8*)data.data() + read_from_buff, reminder_sz); \
+            auto read              = read_from_buff + read_from_backend;                        \
+            auto len               = read / element_size;                                       \
+            if (read % element_size)                                                            \
+                throw partial_read_error(read);                                                 \
+            RETURN read;                                                                        \
+        } else {                                                                                \
+            __builtin_memcpy(data.data(), buff + pos, data_sz);                                 \
+            size -= data_sz;                                                                    \
+            pos += data_sz;                                                                     \
+            RETURN data_sz;                                                                     \
+        }                                                                                       \
     }
+
+    read_tmpl(, return, size_t, this->handle_read, this->take_next)
+
+
+#ifndef DISABLE_ASYNC
+    read_tmpl(_async, co_return, task<size_t>, co_await this->handle_read_async, co_await this->take_next_async)
+#endif
 
     size_t read(trivial auto& data) {
         return read(std::span{&data, 1});
     }
+
+
+#ifndef DISABLE_ASYNC
+    task<size_t> read_async(trivial auto& data) {
+        co_return co_await read_async(std::span{&data, 1});
+    }
+#endif
 
     void seek(off_t offset, seek_whence whence = seek_whence::cur) {
         switch (whence) {
@@ -110,6 +124,14 @@ private:
         size      = read;
         pos       = 0;
     }
+
+#ifndef DISABLE_ASYNC
+    task<> take_next_async() {
+        auto read = co_await this->handle_read_async(buff, BS);
+        size      = read;
+        pos       = 0;
+    }
+#endif
 
     size_t relocate_to(u8* dst) noexcept {
         size_t actually_read = size;

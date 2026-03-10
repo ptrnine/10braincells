@@ -82,6 +82,50 @@ public:
         write(std::span{data, N - 1});
     }
 
+#ifndef DISABLE_ASYNC
+    task<> write_async(const trivial_span_like auto& data) {
+        constexpr auto element_size = sizeof(*data.data());
+        size_t data_sz = data.size() * element_size;
+
+        if (data_sz >= BS) {
+            co_await flush_async();
+            auto wrote = co_await this->handle_write_async(data.data(), data_sz);
+            if (wrote != data_sz)
+                throw partial_write_error(wrote);
+        }
+        else {
+            auto free_space = BS - pos;
+            if (free_space < data_sz)
+                co_await flush_async();
+
+            __builtin_memcpy(buff + pos, data.data(), data_sz);
+            pos += data_sz;
+        }
+    }
+
+    auto write_async(const trivial auto& data) {
+        return write_async(std::span{&data, 1});
+    }
+
+    template <input_range R> requires (!trivial<R> && !trivial_span_like<R>)
+    task<> write_async(R&& data) {
+        for (auto&& v : data)
+            co_await write_async(v);
+    }
+
+    task<> write_async(const auto& data1, const auto& data2, const auto&... data) {
+        co_await write_async(data1);
+        co_await write_async(data2);
+        (co_await write_async(data), ...);
+    }
+
+    /* XXX: thats can be dangerous... */
+    template <size_t N> requires (N >= 1)
+    auto write_async(const char(&data)[N]) {
+        return write_async(std::span{data, N - 1});
+    }
+#endif
+
     void flush() {
         if (pos) {
             auto wrote = this->handle_write(buff, pos);
@@ -92,6 +136,19 @@ public:
             pos = 0;
         }
     }
+
+#ifndef DISABLE_ASYNC
+    task<> flush_async() {
+        if (pos) {
+            auto wrote = co_await this->handle_write_async(buff, pos);
+            if (wrote != pos) {
+                __builtin_memmove(buff, buff + wrote, pos - wrote);
+                throw partial_write_error(wrote);
+            }
+            pos = 0;
+        }
+    }
+#endif
 
     void clear_buffer() {
         pos = 0;

@@ -1,2 +1,3 @@
 leak:libVkLayer_khronos_validation.so
 leak:libxcb.so
+leak:amdvlkpro64.so

@@ -33,6 +33,9 @@ using pid_t   = __pid_t;
 using uid_t   = __uid_t;
 using clock_t = __clock_t;
 
+using off_t = __off_t;
+using ino_t = __ino_t;
+
 enum class byte : u8 {};
 
 enum class fd_t : int {};

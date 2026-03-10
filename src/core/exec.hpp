@@ -8,6 +8,8 @@
 #include <sys/pipe.hpp>
 #include <sys/waitid.hpp>
 
+#include <core/async/waitid.hpp>
+#include <core/epoller.hpp>
 #include <core/io/file.hpp>
 #include <core/io/in.hpp>
 #include <core/io/out.hpp>
@@ -16,7 +18,6 @@
 #include <core/ranges/range.hpp>
 #include <core/ranges/to.hpp>
 #include <core/ranges/zip.hpp>
-#include <core/epoller.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -67,6 +68,13 @@ public:
         if (*_pid == 0) {
             for (auto&& [i, fd] : with_index(fds)) {
                 setup_pipe_child(i, fd);
+                if (pipes[i]) {
+                    if (i == 0) {
+                        sys::close(pipes[i]->out);
+                    } else {
+                        sys::close(pipes[i]->in);
+                    }
+                }
             }
 
             sys::close_range(3, limits<u32>::max());
@@ -74,7 +82,15 @@ public:
             sys::execve(_args[0], _args.data(), _env.data()).throw_if_error();
             __builtin_unreachable();
         } else {
-            //
+            for (auto&& [i, pipe] : with_index(pipes)) {
+                if (pipe) {
+                    if (i == 0) {
+                        pipe->in.close();
+                    } else {
+                        pipe->out.close();
+                    }
+                }
+            }
         }
 
         return *this;
@@ -135,18 +151,79 @@ public:
         return signal{info.status()};
     }
 
+    task<result> run_async() noexcept {
+        if (!_pid) {
+            run();
+        }
+
+        auto pfd    = io::file::pidfd(_pid.value());
+        auto waitid = coro::waitid(sys::wait_type::pidfd, pfd, sys::wait_flag::exited);
+
+        opt<task<>> io_tasks[3];
+
+        auto write_input = [this] -> task<> {
+            const auto& str = *io[0].get(type<std::string*>);
+            for (size_t i = 0; i < str.size();) {
+                auto size  = std::min(str.size() - i, size_t(8192));
+                auto wrote = co_await coro::write(pipes[0]->out, str.data() + i, size);
+                i += wrote.get();
+            }
+        };
+
+        auto read_output = [this](int i) -> task<> {
+            auto& str = *io[i].get(type<std::string*>);
+            str.resize(4096);
+            size_t size = 0;
+            while (true) {
+                auto read = co_await coro::read(pipes[i]->in, str.data() + size, 4096);
+                if (str.capacity() - (size + read.get()) < 4096) {
+                    str.resize(str.size() * 2);
+                }
+                size += read.get();
+                if (read.get() == 0) {
+                    break;
+                }
+            }
+            str.resize(size);
+            str.shrink_to_fit();
+        };
+
+
+        if (io[0].is_type(type<std::string*>)) {
+            io_tasks[0] = write_input();
+        }
+        for (int i = 1; i < 2; ++i) {
+            if (io[i].is_type(type<std::string*>)) {
+                io_tasks[i] = read_output(i);
+            }
+        }
+
+        for (auto& task : io_tasks) {
+            if (task) {
+                co_await *task;
+            }
+        }
+
+        auto info = (co_await waitid).get();
+
+        if (info.is_exited()) {
+            co_return exit_code{info.status()};
+        }
+        co_return signal{info.status()};
+    }
+
     process& set_stdin(auto&& value) {
-        set_std_fd(sys::stdin_fd, value);
+        set_std_fd(sys::stdin_fd, fwd(value));
         return *this;
     }
 
     process& set_stdout(auto&& value) {
-        set_std_fd(sys::stdout_fd, value);
+        set_std_fd(sys::stdout_fd, fwd(value));
         return *this;
     }
 
     process& set_stderr(auto&& value) {
-        set_std_fd(sys::stderr_fd, value);
+        set_std_fd(sys::stderr_fd, fwd(value));
         return *this;
     }
 
@@ -183,8 +260,13 @@ private:
         io[size_t(std_fd)] = null;
     }
 
-    void set_std_fd(sys::fd_t std_fd, sys::pipe_result pipe) {
+    //void set_std_fd(sys::fd_t std_fd, sys::pipe_result pipe) {
+    //    io[size_t(std_fd)] = std_fd == sys::stdin_fd ? pipe.in : pipe.out;
+    //}
+
+    void set_std_fd(sys::fd_t std_fd, io::file_pipe_result pipe) {
         io[size_t(std_fd)] = std_fd == sys::stdin_fd ? pipe.in : pipe.out;
+        pipes[size_t(std_fd)] = mov(pipe);
     }
 
     void setup_pipe(size_t i, opt<sys::fd_t>& fd, opt<io::file_pipe_result>& store) const {
@@ -194,16 +276,17 @@ private:
                 [&](sys::fd_t new_fd) { fd = new_fd; },
                 [&](std::string*) {
                     store = io::file::pipe();
-                    fd = (i == 0 ? store->in : store->out);
+                    fd    = (i == 0 ? store->in : store->out);
                 },
                 [](null_t) {}
             }
         );
     }
 
-    void setup_pipe_child(size_t i, opt<sys::fd_t>& fd) const {
+    void setup_pipe_child(size_t i, opt<sys::fd_t>& fd) {
         if (fd) {
             sys::dup2(*fd, sys::fd_t(i)).throw_if_error();
+            sys::close(*fd);
         } else {
             sys::close(sys::fd_t(i));
         }
@@ -226,26 +309,36 @@ namespace arg {
         }                                                                 \
     } NAME
 
-#define TBC_DEF_IO_SET(NAME, METHOD)                   \
-    constexpr struct _##NAME {                         \
-        /* NOLINTNEXTLINE */                           \
-        constexpr auto operator=(auto&& value) const { \
-            struct res {                               \
-                void visit(process& p) {               \
-                    p.METHOD(v);                       \
-                }                                      \
-                /* NOLINTNEXTLINE */                   \
-                decltype(value)&& v;                   \
-            };                                         \
-            return res{value};                         \
-        }                                              \
+#define TBC_DEF_IO_SET(NAME, METHOD)                                 \
+    constexpr struct _##NAME {                                       \
+        /* NOLINTNEXTLINE */                                         \
+        constexpr auto operator=(auto&& value) const {               \
+            struct res {                                             \
+                void visit(process& p) {                             \
+                    p.METHOD(v);                                     \
+                }                                                    \
+                /* NOLINTNEXTLINE */                                 \
+                decltype(value)&& v;                                 \
+            };                                                       \
+            return res{fwd(value)};                                  \
+        }                                                            \
+        constexpr auto operator=(io::file_pipe_result value) const { \
+            struct res {                                             \
+                void visit(process& p) {                             \
+                    p.METHOD(mov(v));                                \
+                }                                                    \
+                /* NOLINTNEXTLINE */                                 \
+                io::file_pipe_result v;                              \
+            };                                                       \
+            return res{mov(value)};                                  \
+        }                                                            \
     } NAME
 
-TBC_DEF_ARGS_SET(args, set_args);
-TBC_DEF_ARGS_SET(env, set_env);
-TBC_DEF_IO_SET(std_in, set_stdin);
-TBC_DEF_IO_SET(std_out, set_stdout);
-TBC_DEF_IO_SET(std_err, set_stderr);
+    TBC_DEF_ARGS_SET(args, set_args);
+    TBC_DEF_ARGS_SET(env, set_env);
+    TBC_DEF_IO_SET(std_in, set_stdin);
+    TBC_DEF_IO_SET(std_out, set_stdout);
+    TBC_DEF_IO_SET(std_err, set_stderr);
 
 #undef TBC_DEF_ARGS_SET
 #undef TBC_DEF_IO_SET

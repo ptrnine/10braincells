@@ -21,3 +21,7 @@ add_dependencies(hello_triangle_index_buffer vulkan_api_target)
 add_executable(uring_example ./uring.cpp)
 target_link_libraries(uring_example PRIVATE self::src uring)
 add_dependencies(uring_example io_uring_cg)
+
+add_executable(coro_test ./coro_test.cpp)
+target_link_libraries(coro_test PRIVATE self::src uring)
+add_dependencies(coro_test io_uring_cg)

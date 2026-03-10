@@ -20,6 +20,7 @@ add_executable(tests-core
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-sign-conversion>)
+
 #target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=undefined>)
 #target_link_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=undefined>)
 

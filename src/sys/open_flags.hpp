@@ -35,6 +35,7 @@ enum class openflag : int {
     nonblock       = O_NONBLOCK,
     temp           = O_TMPFILE,
     trunc          = O_TRUNC,
+    directory      = O_DIRECTORY,
 };
 
 struct openflags {
