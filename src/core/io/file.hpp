@@ -37,7 +37,7 @@ public:
 
 #ifndef DISABLE_ASYNC
     static task<file> open_async(auto&&... args) {
-        auto res = co_await coro::open(fwd(args)...);
+        auto res = co_await async::open(fwd(args)...);
         co_return file{res.get()};
     }
 #endif
@@ -92,7 +92,7 @@ public:
 #ifndef DISABLE_ASYNC
     template <typename Lazy = void>
     task<> close_async() {
-        auto res = co_await coro::close<Lazy>(_fd);
+        auto res = co_await async::close<Lazy>(_fd);
         res.throw_if_error();
         _fd.reset();
     }

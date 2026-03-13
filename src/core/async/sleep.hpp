@@ -6,7 +6,7 @@
 #include <core/coro/task.hpp>
 #include <sys/syscall.hpp>
 
-namespace core::coro {
+namespace core::async {
 template <typename Rep, typename Period>
 __kernel_timespec to_kernel_timespec(const std::chrono::duration<Rep, Period>& d) {
     using namespace std::chrono;
@@ -31,4 +31,4 @@ task<sys::syscall_result<void>> sleep(std::chrono::nanoseconds duration) {
 
     co_return sys::syscall_result<void>::make_error({-res});
 }
-} // namespace core::core
+} // namespace core::async

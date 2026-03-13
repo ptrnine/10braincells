@@ -6,7 +6,7 @@
 #include <core/coro/task.hpp>
 #include <sys/syscall.hpp>
 
-namespace core::coro {
+namespace core::async {
 template <typename Lazy>
 struct read_provider {
     task<sys::syscall_result<size_t>> read(sys::fd_t fd, void* output, size_t size) {
@@ -83,4 +83,4 @@ auto read(sys::fd_t fd, T (&output)[S]) {
 auto read(sys::fd_t fd, core::trivial_span_like auto& output) {
     return read_provider<void>{}.read(fd, output);
 }
-} // namespace core::coro
+} // namespace core::async

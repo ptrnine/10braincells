@@ -10,7 +10,7 @@
 #include <sys/readdir.hpp>
 #include <sys/write.hpp>
 
-namespace core::coro {
+namespace core::async {
 template <size_t BuffSize = sys::dirent_default_buffer_size>
 task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t fd) {
     std::future<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> res;
@@ -47,7 +47,7 @@ task<sys::syscall_result<sys::dirent_result<u8*>>> getdents(sys::fd_t fd, std::s
 template <size_t BuffSize = sys::dirent_default_buffer_size, typename Fd = sys::fd_t>
 async_generator<sys::dir_entry_str> readdir(Fd fd) {
     while (true) {
-        auto res = (co_await coro::getdents<BuffSize>(fd)).get();
+        auto res = (co_await async::getdents<BuffSize>(fd)).get();
         if (res.is_end()) {
             co_return;
         }
@@ -59,4 +59,4 @@ async_generator<sys::dir_entry_str> readdir(Fd fd) {
         }
     }
 }
-} // namespace core::coro
+} // namespace core::async

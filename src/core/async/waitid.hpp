@@ -4,7 +4,7 @@
 #include <core/coro/task.hpp>
 #include <sys/waitid.hpp>
 
-namespace core::coro {
+namespace core::async {
 task<sys::syscall_result<sys::siginfo_t>> waitid(sys::wait_type type, sys::fd_t id, sys::wait_flags options) {
     sys::siginfo_t siginfo{};
 
@@ -21,4 +21,4 @@ task<sys::syscall_result<sys::siginfo_t>> waitid(sys::wait_type type, sys::fd_t 
     }
     co_return result_t::make_error(-res);
 }
-} // namespace core::core
+} // namespace core::async

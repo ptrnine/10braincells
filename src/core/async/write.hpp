@@ -5,7 +5,7 @@
 #include <core/coro/task.hpp>
 #include <sys/syscall.hpp>
 
-namespace core::coro {
+namespace core::async {
 template <typename Lazy>
 struct write_provider {
     task<sys::syscall_result<size_t>> write(sys::fd_t fd, const void* data, size_t size) {
@@ -51,4 +51,4 @@ auto write(sys::fd_t fd, const core::trivial auto& data) {
 auto write(sys::fd_t fd, const core::trivial_span_like auto& data) {
     return write_provider<void>{}.write(fd, data);
 }
-} // namespace core::coro
+} // namespace core::async

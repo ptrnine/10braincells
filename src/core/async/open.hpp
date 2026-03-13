@@ -8,7 +8,7 @@
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
-namespace core::coro {
+namespace core::async {
 template <typename... Ts>
     requires(core::null_term_string<core::decay<Ts>> || ... || false) &&
     (core::convertible_to<Ts, sys::openflags> || ... || false)
@@ -38,8 +38,8 @@ task<sys::syscall_result<sys::fd_t>> openat(sys::fd_t dirfd, Ts&&... args) {
 }
 
 task<sys::syscall_result<sys::fd_t>> open(auto&&... args) {
-    return coro::openat(sys::fdcwd, fwd(args)...);
+    return async::openat(sys::fdcwd, fwd(args)...);
 }
-} // namespace core::coro
+} // namespace core::async
 
 #undef fwd

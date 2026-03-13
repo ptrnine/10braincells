@@ -12,7 +12,7 @@
 using namespace core;
 
 task<> test() {
-    auto s1 = co_await coro::sleep(std::chrono::seconds(2));
+    auto s1 = co_await async::sleep(std::chrono::seconds(2));
     util::glog().warn("Result: {}", s1.error().info());
 
     auto file = co_await io::file::open_async("./CMakeLists.txt", io::openflags::read_only);
@@ -58,7 +58,7 @@ task<> proc2() {
 }
 
 task<> gen1() {
-    auto dirs = coro::readdir<100>(io::file::open("./", sys::openflags::read_only | sys::openflags::directory));
+    auto dirs = async::readdir<100>(io::file::open("./", sys::openflags::read_only | sys::openflags::directory));
     while (auto ent = co_await dirs) {
         util::glog().warn("file: {}", ent->name);
     }

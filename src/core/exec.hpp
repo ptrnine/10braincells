@@ -157,7 +157,7 @@ public:
         }
 
         auto pfd    = io::file::pidfd(_pid.value());
-        auto waitid = coro::waitid(sys::wait_type::pidfd, pfd, sys::wait_flag::exited);
+        auto waitid = async::waitid(sys::wait_type::pidfd, pfd, sys::wait_flag::exited);
 
         opt<task<>> io_tasks[3];
 
@@ -165,7 +165,7 @@ public:
             const auto& str = *io[0].get(type<std::string*>);
             for (size_t i = 0; i < str.size();) {
                 auto size  = std::min(str.size() - i, size_t(8192));
-                auto wrote = co_await coro::write(pipes[0]->out, str.data() + i, size);
+                auto wrote = co_await async::write(pipes[0]->out, str.data() + i, size);
                 i += wrote.get();
             }
         };
@@ -175,7 +175,7 @@ public:
             str.resize(4096);
             size_t size = 0;
             while (true) {
-                auto read = co_await coro::read(pipes[i]->in, str.data() + size, 4096);
+                auto read = co_await async::read(pipes[i]->in, str.data() + size, 4096);
                 if (str.capacity() - (size + read.get()) < 4096) {
                     str.resize(str.size() * 2);
                 }

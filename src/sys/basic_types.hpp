@@ -39,4 +39,5 @@ using ino_t = __ino_t;
 enum class byte : u8 {};
 
 enum class fd_t : int {};
+enum class wd_t : int {};
 } // namespace sys

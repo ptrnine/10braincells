@@ -133,11 +133,11 @@ protected:
 
 #ifndef DISABLE_ASYNC
     task<size_t> handle_write_async(const void* data, size_t size) {
-        co_return (co_await write(_fd, data, size)).get();
+        co_return (co_await async::write(_fd, data, size)).get();
     }
 
     task<size_t> handle_read_async(void* data, size_t size) {
-        auto res = co_await coro::read(_fd, data, size);
+        auto res = co_await async::read(_fd, data, size);
         if (!is_pipe_like() || res) {
             co_return res.get();
         } else {

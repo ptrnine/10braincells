@@ -4,7 +4,7 @@
 #include <core/coro/task.hpp>
 #include <sys/syscall.hpp>
 
-namespace core::coro {
+namespace core::async {
 template <typename Lazy = void>
 task<sys::syscall_result<void>> close(sys::fd_t fd) {
     auto res = co_await make_awaitable<long>([&fd](awaitable_base<long>& awaitable) {
@@ -15,4 +15,4 @@ task<sys::syscall_result<void>> close(sys::fd_t fd) {
     });
     co_return sys::syscall_result<void>{res};
 }
-} // namespace core::coro
+} // namespace core::async
