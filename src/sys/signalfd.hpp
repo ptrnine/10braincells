@@ -84,28 +84,28 @@ inline auto signalfd(sigset mask, sigfd_flags flags = sigfd_flag::none) {
     return syscall<fd_t>(SYS_signalfd4, -1, &mask, _NSIG / 8, flags.value);
 }
 
-struct siginfo {
-    u32 signo;
-    i32 _pad1;
-    i32 code;
-    u32 pid;
-    u32 uid;
-    i32 fd;
-    u32 tid;
-    u32 band;
-    u32 overrun;
-    u32 trapno;
-    i32 status;
-    i32 integer;
-    u64 ptr;
-    u64 utime;
-    u64 stime;
-    u64 addr;
-    u16 addr_lsb;
-    u16 _pad2;
-    i32 syscall;
-    u64 call_addr;
-    u32 arch;
-    u8  _pad[28];
-};
+//struct siginfo {
+//    u32 signo;
+//    i32 _pad1;
+//    i32 code;
+//    u32 pid;
+//    u32 uid;
+//    i32 fd;
+//    u32 tid;
+//    u32 band;
+//    u32 overrun;
+//    u32 trapno;
+//    i32 status;
+//    i32 integer;
+//    u64 ptr;
+//    u64 utime;
+//    u64 stime;
+//    u64 addr;
+//    u16 addr_lsb;
+//    u16 _pad2;
+//    i32 syscall;
+//    u64 call_addr;
+//    u32 arch;
+//    u8  _pad[28];
+//};
 } // namespace sys

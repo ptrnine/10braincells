@@ -10,6 +10,7 @@ int main(int argc, char** argv) {
     sigset.add(SIGINT, SIGTERM);
     sys::sigprocmask(sys::sigmask::block, sigset).throw_if_error();
     auto signalfd = core::io::file::signalfd(sigset, sys::sigfd_flag::close_exec);
+    core::async::current_signalfd = &signalfd;
 
-    return core::async::run([argc, argv] { return async_main(std::span{argv, size_t(argc)}); }, core::mov(signalfd));
+    return core::async::run([argc, argv] { return async_main(std::span{argv, size_t(argc)}); });
 }

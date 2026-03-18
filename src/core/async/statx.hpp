@@ -9,6 +9,10 @@
 
 namespace core::async {
 task<sys::syscall_result<sys::statx_info>> statx(auto&&... args) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     sys::fd_t        dirfd    = sys::fdcwd;
     const char*      pathname = "";
     sys::statx_flags flags    = sys::statx_flag::empty_path;

@@ -11,9 +11,10 @@
 
 #include <core/io/file.hpp>
 
+#include <sys/open_flags.hpp>
 #include <sys/signalfd.hpp>
 #include <sys/sigprocmask.hpp>
-#include <thread>
+#include <sys/siginfo.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -106,76 +107,114 @@ struct runner_task {
     std::coroutine_handle<promise_type> _handle;
 };
 
-task<void> stop_by_signal(sys::fd_t sigfd) {
-    if (sigfd == sys::invalid_fd) {
-        co_return;
+namespace details {
+    task<void> stop_by_signal(sys::fd_t sigfd) {
+        if (sigfd == sys::invalid_fd) {
+            co_return;
+        }
+
+        while (auto siginfo = co_await async::read<sys::siginfo_t>(sigfd)) {
+            if (siginfo->signo == SIGINT || siginfo->signo == SIGTERM) {
+                for (auto sigpipe : io::uring::current_ctx->child_signalfd_pipes()) {
+                    sys::write(sigpipe.out, *siginfo);
+                }
+
+                io::uring::current_ctx->send_kill_event(siginfo->signo);
+
+                glog().warn("Received signal {} in thread {x}, terminating", siginfo->signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
+                // if (current_ctx->child_signalfd_pipes().size())
+                (co_await async::cancel_all()).throw_if_error();
+                break;
+            }
+        }
     }
 
-    while (auto siginfo = co_await async::read<sys::siginfo>(sigfd)) {
-        if (siginfo->signo == SIGINT || siginfo->signo == SIGTERM) {
+    task<void> stop_by_kill_event() {
+        auto eventfd = io::uring::current_ctx->get_internal_kill_event();
+        if (eventfd == sys::invalid_fd) {
+            co_return;
+        }
+
+        if (auto signo = co_await async::read<u64>(eventfd)) {
+            // XXX: siginfo does not contain full info, only signo
+            sys::siginfo_t siginfo{};
+            siginfo.signo = int(signo.get());
             for (auto sigpipe : io::uring::current_ctx->child_signalfd_pipes()) {
-                sys::write(sigpipe.out, *siginfo);
+                sys::write(sigpipe.out, siginfo);
             }
 
-            glog().warn("Received signal {} in thread {x}, terminating", siginfo->signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
-            //if (current_ctx->child_signalfd_pipes().size())
+            io::uring::current_ctx->send_kill_event(int(*signo));
+
+            glog().warn("Received kill event {} in thread {x}, terminating", *signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
+            // if (current_ctx->child_signalfd_pipes().size())
             (co_await async::cancel_all()).throw_if_error();
-            break;
         }
     }
-}
 
-auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay<decltype(start_coro())>::result_type> {
-    auto main    = start_coro();
-    auto inotify = async::current_inotify_ctx->run();
-    auto signal  = stop_by_signal(signalfd);
+    auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay<decltype(start_coro())>::result_type> {
+        auto main       = start_coro();
+        auto inotify    = async::current_inotify_ctx->run();
+        auto signal     = stop_by_signal(signalfd);
+        auto kill_event = stop_by_kill_event();
 
-    std::exception_ptr exception;
+        std::exception_ptr exception;
 
-    if constexpr (is_same<void, typename decay<decltype(start_coro())>::result_type>) {
-        try {
-            co_await main;
-        } catch (...) {
-            exception = std::current_exception();
+        if constexpr (is_same<void, typename decay<decltype(start_coro())>::result_type>) {
+            try {
+                co_await main;
+            } catch (...) {
+                exception = std::current_exception();
+            }
+
+            co_await async::current_inotify_ctx->stop();
+            co_await inotify;
+            io::uring::current_ctx->block_new_tasks();
+
+            co_await signal.cancel();
+            co_await kill_event.cancel();
+            co_await signal;
+            co_await kill_event;
+            co_await current_final_task_waiter->wait_all();
+
+            if (exception) {
+                std::rethrow_exception(exception);
+            }
+        } else {
+            opt<typename decay<decltype(start_coro())>::result_type> res;
+            try {
+                res = co_await main;
+            } catch (...) {
+                exception = std::current_exception();
+            }
+
+            co_await async::current_inotify_ctx->stop();
+            co_await inotify;
+            io::uring::current_ctx->block_new_tasks();
+
+            co_await signal.cancel();
+            co_await kill_event.cancel();
+            co_await signal;
+            co_await kill_event;
+            co_await current_final_task_waiter->wait_all();
+
+            if (exception) {
+                std::rethrow_exception(exception);
+            }
+
+            co_return *res;
         }
-
-        co_await async::current_inotify_ctx->stop();
-        co_await inotify;
-        co_await signal.cancel();
-        co_await signal;
-        co_await current_final_task_waiter->wait_all();
-
-        if (exception) {
-            std::rethrow_exception(exception);
-        }
-    } else {
-        opt<typename decay<decltype(start_coro())>::result_type> res;
-        try {
-            res = co_await main;
-        } catch (...) {
-            exception = std::current_exception();
-        }
-
-        co_await async::current_inotify_ctx->stop();
-        co_await inotify;
-        co_await signal.cancel();
-        co_await signal;
-        co_await current_final_task_waiter->wait_all();
-
-        if (exception) {
-            std::rethrow_exception(exception);
-        }
-
-        co_return *res;
     }
-}
 
-auto runner_coro_entry(auto&& start_coro, sys::fd_t signalfd) -> runner_task<typename decay<decltype(start_coro())>::result_type> {
-    finalizer on_exit{[] { io::uring::current_ctx->exit(); }};
-    co_return co_await runner_launch(fwd(start_coro), signalfd);
-}
+    auto runner_coro_entry(auto&& start_coro, sys::fd_t signalfd) -> runner_task<typename decay<decltype(start_coro())>::result_type> {
+        finalizer on_exit{[] { io::uring::current_ctx->exit(); }};
+        co_return co_await runner_launch(fwd(start_coro), signalfd);
+    }
+} // namespace details
 
-auto run(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
+thread_local io::file* current_signalfd = nullptr;
+
+// TODO: signals
+auto run(auto&& start_coro) {
     glog().info("start async context at thread {x}", std::this_thread::get_id());
 
     auto      prev_ctx = std::tuple{io::uring::current_ctx, async::current_inotify_ctx, current_final_task_waiter};
@@ -184,38 +223,42 @@ auto run(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
     io::uring::ctx ctx{32, io::uring::setup_flags::single_issuer};
     io::uring::current_ctx = &ctx;
 
+    if (std::get<0>(prev_ctx)) {
+        io::uring::current_ctx->set_kill_event_recipient(std::get<0>(prev_ctx)->ensure_internal_kill_event());
+    }
+
     async::inotify_ctx inotify_ctx;
     async::current_inotify_ctx = &inotify_ctx;
 
     final_task_waiter waiter;
     current_final_task_waiter = &waiter;
 
-    auto result = runner_coro_entry(fwd(start_coro), signalfd);
+    auto result = details::runner_coro_entry(fwd(start_coro), *current_signalfd);
     ctx.run();
     return result._handle.promise().result();
-}
-
-auto run_in_thread(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
-    return std::async(std::launch::async, [f = fwd(start_coro), sigfd = mov(signalfd)] mutable { return run(mov(f), sigfd); });
 }
 
 auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro())>::result_type> {
     std::future<typename decay<decltype(start_coro())>::result_type> res;
 
-    auto signalfd_pipe = io::file::pipe();
-    sys::pipe_result sigpipe = signalfd_pipe;
+    auto sigpipe = io::file::pipe();
 
     co_await make_awaitable<long>(
-        [&res, coro = fwd(start_coro), sigpipe]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+        [&res, coro = fwd(start_coro), &sigpipe]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+            if (io::uring::current_ctx->is_tasks_blocked()) {
+                throw errc_exception{errc::ecanceled};
+            }
+
             caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
             caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::spawn_child});
 
             // TODO: thread tasks cancelation
             io::uring::current_ctx->add_child_signalfd_pipe(sigpipe);
-            io::uring::current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = sigpipe.in](sys::fd_t efd) mutable {
+            io::uring::current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = &sigpipe.in](sys::fd_t efd) mutable {
                 res = std::async(std::launch::async, [coro = mov(coro), efd, sigfd] mutable {
                     finalizer f{[efd] { sys::write(efd, u64(1)); }};
-                    return run(mov(coro), sigfd);
+                    current_signalfd = sigfd;
+                    return run(mov(coro));
                 });
             });
         }

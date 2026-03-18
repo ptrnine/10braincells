@@ -1,3 +1,4 @@
+#include <core/io/uring/ctx.hpp>
 #define CORO_METAINFO
 
 #include <core/async/main.hpp>
@@ -35,7 +36,7 @@ task<> proc() {
     auto    pipe = io::file::pipe();
     io::in  in{pipe.in, size_c<0>};
     process proc{
-        arg::args    = {"/bin/bash", "-c", "i=0; while [ $i -le 5 ]; do i=$((i+1)); printf hellloo; sleep 0.5; done; printf exit"},
+        arg::args    = {"/bin/bash", "-c", "i=0; while [ $i -le 5 ]; do i=$((i+1)); printf hellloo; sleep 1; done; printf exit"},
         arg::std_out = mov(pipe),
     };
 
@@ -121,6 +122,7 @@ task<int> async_main(std::span<char*>) try {
     });
     auto f2 = async::spawn_child(test_async);
     auto f3 = test_async();
+    async::run(test_async);
 
     co_await f1;
     co_await f2;

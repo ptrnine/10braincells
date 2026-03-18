@@ -14,6 +14,10 @@
 namespace core::async {
 template <size_t BuffSize = sys::dirent_default_buffer_size>
 task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t fd) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     std::future<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> res;
 
     co_await make_awaitable<long>([&res, fd]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
@@ -31,6 +35,10 @@ task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t f
 }
 
 task<sys::syscall_result<sys::dirent_result<u8*>>> getdents(sys::fd_t fd, std::span<u8> buff) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     std::future<sys::syscall_result<sys::dirent_result<u8*>>> res;
 
     co_await make_awaitable<long>([&res, fd, buff]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {

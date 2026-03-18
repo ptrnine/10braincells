@@ -8,6 +8,10 @@
 namespace core::async {
 template <typename Lazy = void>
 task<sys::syscall_result<void>> close(sys::fd_t fd) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     auto res = co_await io::uring::make_uring_awaitable(
         [&fd](io::uring::uring_awaitable& awaitable) {
             auto& sqe = io::uring::current_ctx->get_sqe();

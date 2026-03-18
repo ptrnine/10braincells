@@ -21,6 +21,10 @@ __kernel_timespec to_kernel_timespec(const std::chrono::duration<Rep, Period>& d
 }
 
 task<sys::syscall_result<void>> sleep(std::chrono::nanoseconds duration) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     auto dur = to_kernel_timespec(duration);
 
     auto res = co_await io::uring::make_uring_awaitable(

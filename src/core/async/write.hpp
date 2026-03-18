@@ -10,6 +10,10 @@ namespace core::async {
 template <typename Lazy>
 struct write_provider {
     task<sys::syscall_result<size_t>> write(sys::fd_t fd, const void* data, size_t size) {
+        if (io::uring::current_ctx->is_tasks_blocked()) {
+            co_return {errc::ecanceled};
+        }
+
         auto res = co_await io::uring::make_uring_awaitable(
             [&fd, &data, &size](io::uring::uring_awaitable& awaitable) {
                 auto& sqe = io::uring::current_ctx->get_sqe();

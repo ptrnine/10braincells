@@ -70,7 +70,8 @@ namespace details
     struct syscall_result_impl<D, T> {
         //static_assert(sizeof(T) == 8);
 
-        constexpr explicit syscall_result_impl(errc err): syscall_result_impl(-(sc_arg)err.code) {}
+        constexpr explicit syscall_result_impl(core::type_t<T>): _r(sc_arg{T{}}) {}
+        constexpr syscall_result_impl(errc err): syscall_result_impl(-(sc_arg)err.code) {}
         constexpr syscall_result_impl(sc_arg arg = 0): _r(arg) {}
 
         static constexpr D make_error(errc err) {

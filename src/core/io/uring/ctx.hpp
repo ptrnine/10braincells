@@ -83,8 +83,12 @@ public:
     }
 
     ~ctx() {
-        if (ring)
+        if (ring) {
             io_uring_queue_exit(&*ring);
+        }
+        if (_internal_kill_event != sys::invalid_fd) {
+            sys::close(_internal_kill_event);
+        }
     }
 
     ctx(ctx&&) noexcept                 = delete;
@@ -167,6 +171,35 @@ public:
         _child_signalfd_pipes.emplace(pipe);
     }
 
+    sys::fd_t ensure_internal_kill_event() {
+        if (_internal_kill_event == sys::invalid_fd) {
+            _internal_kill_event = sys::eventfd(0).get();
+        }
+        return _internal_kill_event;
+    }
+
+    sys::fd_t get_internal_kill_event() const {
+        return _internal_kill_event;
+    }
+
+    void set_kill_event_recipient(sys::fd_t fd) {
+        _kill_event_recipient = fd;
+    }
+
+    void send_kill_event(int signo) {
+        if (_kill_event_recipient != sys::invalid_fd) {
+            sys::write(_kill_event_recipient, u64(signo)).throw_if_error();
+        }
+    }
+
+    void block_new_tasks() {
+        _block_new_tasks = true;
+    }
+
+    bool is_tasks_blocked() const {
+        return _block_new_tasks;
+    }
+
 private:
     io_uring_sqe* try_get_sqe() {
         auto sqe = io_uring_get_sqe(&*ring);
@@ -178,7 +211,10 @@ private:
 
 private:
     opt<io_uring> ring;
-    bool          _running = true;
+    bool          _running              = true;
+    bool          _block_new_tasks      = false;
+    sys::fd_t     _internal_kill_event  = sys::invalid_fd;
+    sys::fd_t     _kill_event_recipient = sys::invalid_fd;
 
     std::unordered_map<sys::fd_t, thread_task> thread_tasks;
     std::set<sys::pipe_result>                 _child_signalfd_pipes;

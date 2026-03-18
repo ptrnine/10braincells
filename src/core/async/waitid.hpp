@@ -7,6 +7,10 @@
 
 namespace core::async {
 task<sys::syscall_result<sys::siginfo_t>> waitid(sys::wait_type type, sys::fd_t id, sys::wait_flags options) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     sys::siginfo_t siginfo{};
 
     auto res = co_await io::uring::make_uring_awaitable(

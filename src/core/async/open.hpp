@@ -13,6 +13,10 @@ namespace core::async {
 template <typename... Ts>
     requires(core::null_term_string<core::decay<Ts>> || ... || false) && (core::convertible_to<Ts, sys::openflags> || ... || false)
 task<sys::syscall_result<sys::fd_t>> openat(sys::fd_t dirfd, Ts&&... args) {
+    if (io::uring::current_ctx->is_tasks_blocked()) {
+        co_return {errc::ecanceled};
+    }
+
     const char*     pathname;
     sys::openflags  flags = sys::openflag::large;
     sys::file_perms mode  = sys::file_perms::o644;

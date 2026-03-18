@@ -11,6 +11,10 @@ namespace core::async {
 template <typename Lazy>
 struct read_provider {
     task<sys::syscall_result<size_t>> read(sys::fd_t fd, void* output, size_t size) {
+        if (io::uring::current_ctx->is_tasks_blocked()) {
+            co_return {errc::ecanceled};
+        }
+
         auto res = co_await io::uring::make_uring_awaitable(
             [&fd, &output, &size](io::uring::uring_awaitable& awaitable) {
                 auto& sqe = io::uring::current_ctx->get_sqe();
