@@ -118,33 +118,31 @@ struct task_promise_type<Task, void> {
 template <typename ResultT = void>
 struct [[nodiscard]] task;
 
-namespace details {
-    class lost_tasks_singleton {
-    public:
-        lost_tasks_singleton(const lost_tasks_singleton&)            = delete;
-        lost_tasks_singleton& operator=(const lost_tasks_singleton&) = delete;
+class final_task_waiter {
+public:
+    final_task_waiter();
+    ~final_task_waiter();
 
-        static lost_tasks_singleton& instance();
+    final_task_waiter(final_task_waiter&&)            = delete;
+    final_task_waiter& operator=(final_task_waiter&&) = delete;
 
-        template <typename T>
-        void       push(task<T>&& task);
-        task<void> wait_all();
+    template <typename T>
+    void       push(task<T>&& task);
+    task<void> wait_all();
 
-    private:
-        lost_tasks_singleton();
-        ~lost_tasks_singleton();
-
-        struct func_awaitable {
-            function<task<void>(), 16> awaitable;
-            async::cancelation_point_t cancelation_point;
+private:
+    struct func_awaitable {
+        function<task<void>(), 16> awaitable;
+        async::cancelation_point_t cancelation_point;
 #ifdef CORO_METAINFO
-            coro_handle_metainfo metainfo;
+        coro_handle_metainfo metainfo;
 #endif
-        };
-
-        std::list<func_awaitable> _awaitables;
     };
-} // namespace details
+
+    std::list<func_awaitable> _awaitables;
+};
+
+inline thread_local final_task_waiter* current_final_task_waiter = nullptr;
 
 template <typename ResultT>
 struct [[nodiscard]] task {
@@ -230,7 +228,7 @@ struct [[nodiscard]] task {
         if (_handle) {
             if (!_await_called) {
                 glog().error("task{} {} started, but co_await not called", metainfo().to_string(), (void*)cancelation_point().get());
-                details::lost_tasks_singleton::instance().push(task<ResultT>(mov(*this)));
+                current_final_task_waiter->push(task<ResultT>(mov(*this)));
                 return;
             }
             _handle.destroy();
@@ -243,48 +241,37 @@ struct [[nodiscard]] task {
     bool                                _await_called = false;
 };
 
-namespace details {
-    inline lost_tasks_singleton& lost_tasks_singleton::instance() {
-        thread_local lost_tasks_singleton inst;
-        return inst;
-    }
-
-    template <typename T>
-    inline void lost_tasks_singleton::push(task<T>&& task) {
-        auto                  cancelation_point = task.cancelation_point();
-        [[maybe_unused]] auto metainfo          = task.metainfo();
-        _awaitables.push_back({
-            [t = mov(task)] mutable -> core::task<void> { co_await t; },
-            cancelation_point,
+template <typename T>
+inline void final_task_waiter::push(task<T>&& task) {
+    auto                  cancelation_point = task.cancelation_point();
+    [[maybe_unused]] auto metainfo          = task.metainfo();
+    _awaitables.push_back({
+        [t = mov(task)] mutable -> core::task<void> { co_await t; },
+        cancelation_point,
 #ifdef CORO_METAINFO
-            metainfo,
+        metainfo,
 #endif
-        });
-    }
-
-    inline task<void> lost_tasks_singleton::wait_all() {
-        while (!_awaitables.empty()) {
-            auto w = mov(_awaitables.front());
-            _awaitables.pop_front();
-            try {
-#ifdef CORO_METAINFO
-                glog().warn("co_await lost task{} {}", w.metainfo.to_string(), (void*)w.cancelation_point.get());
-#else
-                glog().warn("co_await lost task {}", (void*)w.cancelation_point.get());
-#endif
-                co_await w.awaitable();
-            } catch (const std::exception& e) {
-                glog().error("exception while co_await lost task {}: {}", (void*)w.cancelation_point.get(), e.what());
-            }
-        }
-        _awaitables.clear();
-    }
-
-    inline lost_tasks_singleton::lost_tasks_singleton()  = default;
-    inline lost_tasks_singleton::~lost_tasks_singleton() = default;
-} // namespace details
-
-inline static auto& lost_tasks() {
-    return details::lost_tasks_singleton::instance();
+    });
 }
+
+inline task<void> final_task_waiter::wait_all() {
+    while (!_awaitables.empty()) {
+        auto w = mov(_awaitables.front());
+        _awaitables.pop_front();
+        try {
+#ifdef CORO_METAINFO
+            glog().warn("co_await lost task{} {}", w.metainfo.to_string(), (void*)w.cancelation_point.get());
+#else
+            glog().warn("co_await lost task {}", (void*)w.cancelation_point.get());
+#endif
+            co_await w.awaitable();
+        } catch (const std::exception& e) {
+            glog().error("exception while co_await lost task {}: {}", (void*)w.cancelation_point.get(), e.what());
+        }
+    }
+    _awaitables.clear();
+}
+
+inline final_task_waiter::final_task_waiter()  = default;
+inline final_task_waiter::~final_task_waiter() = default;
 } // namespace core

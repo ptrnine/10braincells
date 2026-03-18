@@ -2,9 +2,10 @@
 
 #include <future>
 
-#include <core/async/ctx.hpp>
 #include <core/coro/async_generator.hpp>
 #include <core/coro/task.hpp>
+#include <core/io/uring/ctx.hpp>
+
 #include <sys/eventfd.hpp>
 #include <sys/poll.hpp>
 #include <sys/readdir.hpp>
@@ -19,7 +20,7 @@ task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t f
         caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
         caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::getdents});
         // TODO: thread tasks cancelation
-        current_ctx->schedule_thread_task(awaitable, [&res, fd](sys::fd_t efd) mutable {
+        io::uring::current_ctx->schedule_thread_task(awaitable, [&res, fd](sys::fd_t efd) mutable {
             res = std::async(std::launch::async, [fd] { return sys::getdents<BuffSize>(fd); });
             res.wait();
             sys::write(efd, u64(1));
@@ -36,8 +37,8 @@ task<sys::syscall_result<sys::dirent_result<u8*>>> getdents(sys::fd_t fd, std::s
         caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
         caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::getdents});
         // TODO: thread tasks cancelation
-        current_ctx->schedule_thread_task(awaitable, [&res, fd, buff](sys::fd_t efd) mutable {
-            res = std::async(std::launch::async, [fd, buff, efd]{
+        io::uring::current_ctx->schedule_thread_task(awaitable, [&res, fd, buff](sys::fd_t efd) mutable {
+            res = std::async(std::launch::async, [fd, buff, efd] {
                 auto res = sys::getdents(fd, buff);
                 sys::write(efd, u64(1));
                 return res;

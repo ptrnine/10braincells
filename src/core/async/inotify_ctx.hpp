@@ -45,12 +45,20 @@ struct wd_event_buffer {
     size_t                push_count = 0;
 };
 
-class inotify_ctx_singleton {
+class inotify_ctx {
 public:
-    static inotify_ctx_singleton& instance() {
-        thread_local inotify_ctx_singleton ctx;
-        return ctx;
+    inotify_ctx() {
+        fd = sys::inotify_init().get();
     }
+
+    ~inotify_ctx() {
+        if (fd != sys::invalid_fd) {
+            sys::close(fd);
+        }
+    }
+
+    inotify_ctx(inotify_ctx&&)            = delete;
+    inotify_ctx& operator=(inotify_ctx&&) = delete;
 
     task<> run() {
         u8 buff[inotify_event_buff_size];
@@ -161,24 +169,10 @@ public:
         return sys::syscall_result<size_t>{errc::enoent};
     }
 
-    inotify_ctx_singleton(inotify_ctx_singleton&&)            = delete;
-    inotify_ctx_singleton& operator=(inotify_ctx_singleton&&) = delete;
-
 private:
     void subscribe_wd(sys::wd_t wd, awaitable_base<sys::syscall_result<void>>& awaitable) {
         consumers[wd].awaitables.emplace_back(&awaitable);
     }
-
-    inotify_ctx_singleton() {
-        fd = sys::inotify_init().get();
-    }
-
-    ~inotify_ctx_singleton() {
-        if (fd != sys::invalid_fd) {
-            sys::close(fd);
-        }
-    }
-
     struct consumer_state {
         wd_event_buffer*                                        buff;
         std::vector<awaitable_base<sys::syscall_result<void>>*> awaitables;
@@ -190,7 +184,5 @@ private:
     bool                                canceled = false;
 };
 
-static inline inotify_ctx_singleton& inotify_ctx() {
-    return inotify_ctx_singleton::instance();
-}
+inline thread_local inotify_ctx* current_inotify_ctx = nullptr;
 } // namespace core::async

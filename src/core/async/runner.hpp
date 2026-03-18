@@ -4,10 +4,10 @@
 #include <future>
 
 #include <core/async/cancel.hpp>
-#include <core/async/ctx.hpp>
 #include <core/async/inotify_ctx.hpp>
 #include <core/coro/task.hpp>
 #include <core/finalizer.hpp>
+#include <core/io/uring/ctx.hpp>
 
 #include <core/io/file.hpp>
 
@@ -113,7 +113,7 @@ task<void> stop_by_signal(sys::fd_t sigfd) {
 
     while (auto siginfo = co_await async::read<sys::siginfo>(sigfd)) {
         if (siginfo->signo == SIGINT || siginfo->signo == SIGTERM) {
-            for (auto sigpipe : current_ctx->child_signalfd_pipes()) {
+            for (auto sigpipe : io::uring::current_ctx->child_signalfd_pipes()) {
                 sys::write(sigpipe.out, *siginfo);
             }
 
@@ -127,7 +127,7 @@ task<void> stop_by_signal(sys::fd_t sigfd) {
 
 auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay<decltype(start_coro())>::result_type> {
     auto main    = start_coro();
-    auto inotify = async::inotify_ctx().run();
+    auto inotify = async::current_inotify_ctx->run();
     auto signal  = stop_by_signal(signalfd);
 
     std::exception_ptr exception;
@@ -139,11 +139,11 @@ auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay
             exception = std::current_exception();
         }
 
-        co_await async::inotify_ctx().stop();
+        co_await async::current_inotify_ctx->stop();
         co_await inotify;
         co_await signal.cancel();
         co_await signal;
-        co_await lost_tasks().wait_all();
+        co_await current_final_task_waiter->wait_all();
 
         if (exception) {
             std::rethrow_exception(exception);
@@ -156,11 +156,11 @@ auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay
             exception = std::current_exception();
         }
 
-        co_await async::inotify_ctx().stop();
+        co_await async::current_inotify_ctx->stop();
         co_await inotify;
         co_await signal.cancel();
         co_await signal;
-        co_await lost_tasks().wait_all();
+        co_await current_final_task_waiter->wait_all();
 
         if (exception) {
             std::rethrow_exception(exception);
@@ -171,21 +171,25 @@ auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay
 }
 
 auto runner_coro_entry(auto&& start_coro, sys::fd_t signalfd) -> runner_task<typename decay<decltype(start_coro())>::result_type> {
-    finalizer on_exit{[] { current_ctx->exit(); }};
+    finalizer on_exit{[] { io::uring::current_ctx->exit(); }};
     co_return co_await runner_launch(fwd(start_coro), signalfd);
 }
 
 auto run(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
-    using namespace core;
-
     glog().info("start async context at thread {x}", std::this_thread::get_id());
 
-    // TODO: save inotify and lost_tasks contexts
-    auto      prev_ctx = current_ctx;
-    finalizer on_exit{[&] { current_ctx = prev_ctx; }};
+    auto      prev_ctx = std::tuple{io::uring::current_ctx, async::current_inotify_ctx, current_final_task_waiter};
+    finalizer on_exit{[&] { std::tie(io::uring::current_ctx, async::current_inotify_ctx, current_final_task_waiter) = prev_ctx; }};
 
     io::uring::ctx ctx{32, io::uring::setup_flags::single_issuer};
-    current_ctx = &ctx;
+    io::uring::current_ctx = &ctx;
+
+    async::inotify_ctx inotify_ctx;
+    async::current_inotify_ctx = &inotify_ctx;
+
+    final_task_waiter waiter;
+    current_final_task_waiter = &waiter;
+
     auto result = runner_coro_entry(fwd(start_coro), signalfd);
     ctx.run();
     return result._handle.promise().result();
@@ -207,8 +211,8 @@ auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro()
             caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::spawn_child});
 
             // TODO: thread tasks cancelation
-            current_ctx->add_child_signalfd_pipe(sigpipe);
-            current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = sigpipe.in](sys::fd_t efd) mutable {
+            io::uring::current_ctx->add_child_signalfd_pipe(sigpipe);
+            io::uring::current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = sigpipe.in](sys::fd_t efd) mutable {
                 res = std::async(std::launch::async, [coro = mov(coro), efd, sigfd] mutable {
                     finalizer f{[efd] { sys::write(efd, u64(1)); }};
                     return run(mov(coro), sigfd);
@@ -216,7 +220,7 @@ auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro()
             });
         }
     );
-    current_ctx->remove_child_signalfd_pipe(sigpipe);
+    io::uring::current_ctx->remove_child_signalfd_pipe(sigpipe);
 
     co_return res.get();
 }

@@ -87,8 +87,8 @@ public:
             io_uring_queue_exit(&*ring);
     }
 
-    ctx(ctx&&) noexcept                 = default;
-    ctx& operator=(ctx&&) noexcept      = default;
+    ctx(ctx&&) noexcept                 = delete;
+    ctx& operator=(ctx&&) noexcept      = delete;
     ctx(const ctx&) noexcept            = delete;
     ctx& operator=(const ctx&) noexcept = delete;
 
@@ -183,6 +183,8 @@ private:
     std::unordered_map<sys::fd_t, thread_task> thread_tasks;
     std::set<sys::pipe_result>                 _child_signalfd_pipes;
 };
+
+inline thread_local ctx* current_ctx = nullptr;
 } // namespace core::io::uring
 
 #undef fwd

@@ -16,7 +16,7 @@ public:
     template <typename Str>
         requires null_term_string<decay<Str>>
     inotify_watch(Str&& path, sys::inotify_watch_flags flags, size_t ring_size = 32):
-        _path(fwd(path)), _flags(flags), _events(boxed<wd_event_buffer>(ring_size)), _wd(inotify_ctx().add_watch(_path, _flags, _events.get()).get()) {}
+        _path(fwd(path)), _flags(flags), _events(boxed<wd_event_buffer>(ring_size)), _wd(current_inotify_ctx->add_watch(_path, _flags, _events.get()).get()) {}
 
     ~inotify_watch() {
         _destroy();
@@ -42,7 +42,7 @@ public:
     }
 
     task<sys::syscall_result<void>> wait() const {
-        co_return co_await inotify_ctx().await_event_from(_wd);
+        co_return co_await current_inotify_ctx->await_event_from(_wd);
     }
 
     class event_poller {
@@ -78,7 +78,7 @@ public:
 private:
     void _destroy() {
         if (_wd.not_default()) {
-            inotify_ctx().rm_watch(_wd);
+            current_inotify_ctx->rm_watch(_wd);
             _wd.reset();
         }
     }

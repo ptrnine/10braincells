@@ -2,8 +2,9 @@
 
 #include <chrono>
 
-#include <core/async/ctx.hpp>
 #include <core/coro/task.hpp>
+#include <core/io/uring/ctx.hpp>
+
 #include <sys/syscall.hpp>
 
 namespace core::async {
@@ -24,10 +25,10 @@ task<sys::syscall_result<void>> sleep(std::chrono::nanoseconds duration) {
 
     auto res = co_await io::uring::make_uring_awaitable(
         [&dur](io::uring::uring_awaitable& awaitable) {
-            auto& sqe = current_ctx->get_sqe();
+            auto& sqe = io::uring::current_ctx->get_sqe();
             io_uring_prep_timeout(&sqe, &dur, 0, 0);
             io_uring_sqe_set_data(&sqe, &awaitable);
-            io_uring_submit(current_ctx->get_ring());
+            io_uring_submit(io::uring::current_ctx->get_ring());
         },
         async_task_type::sleep
     );
