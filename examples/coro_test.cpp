@@ -1,26 +1,32 @@
+#define CORO_METAINFO
+
 #include <core/async/main.hpp>
 #include <core/async/sleep.hpp>
 #include <core/async/waitid.hpp>
 #include <core/async/readdir.hpp>
+#include <core/async/statx.hpp>
+#include <core/async/cancel.hpp>
+#include <core/async/inotify_watch.hpp>
 //#include <core/coro/read.hpp>
 
 #include <core/exec.hpp>
 
 #include <sys/pipe.hpp>
 #include <util/log.hpp>
+#include <core/realpath.hpp>
 
 using namespace core;
 
 task<> test() {
     auto s1 = co_await async::sleep(std::chrono::seconds(2));
-    util::glog().warn("Result: {}", s1.error().info());
+    glog().detail("Sleep result: {}", s1.error().info());
 
     auto file = co_await io::file::open_async("./CMakeLists.txt", io::openflags::read_only);
     auto in = io::in{file};
 
     std::vector<char> test(13333);
     auto r = co_await in.read_async(test);
-    util::glog().warn("Result: {}", r);
+    glog().detail("Result: {}", r);
 
     co_await file.close_async();
 }
@@ -40,7 +46,7 @@ task<> proc() {
         auto              s = co_await in.read_async(data);
         if (s == 0)
             break;
-        util::glog().warn("{}", data.data());
+        glog().detail("{}", data.data());
     }
     co_await p;
 }
@@ -54,20 +60,48 @@ task<> proc2() {
 
     co_await proc.run_async();
 
-    util::glog().warn("{} {}", out.size(), out);
+    glog().detail("{} {}", out.size(), out);
 }
 
 task<> gen1() {
     auto dirs = async::readdir<100>(io::file::open("./", sys::openflags::read_only | sys::openflags::directory));
     while (auto ent = co_await dirs) {
-        util::glog().warn("file: {}", ent->name);
+        glog().detail("file: {}", ent->name);
     }
 }
 
-task<int> coro_main(std::span<char*>) {
+task<> statx_test() {
+    auto res = (co_await async::statx(sys::statx_mask::all, "./CMakeLists.txt")).get();
+    glog().detail("{} {}", res.ino, res.size);
+}
+
+task<void> poll_ino_events(async::inotify_watch& watch) {
+    auto poller = watch.poller();
+    while (co_await poller.wait()) {
+        glog().detail("events:");
+        for (auto event : poller.poll()) {
+            glog().detail("  {} {}", event.name, event.flags.to_string());
+        }
+    }
+}
+
+task<void> destroy_after_10s(async::inotify_watch& watch) {
+    co_await async::sleep(std::chrono::seconds{10});
+    watch = {};
+}
+
+task<void> test_async() {
     std::vector<task<>> tasks;
 
+    glog().detail("path: {}", realpath("./").get());
+
+    async::inotify_watch watch{"./", sys::inotify_watch_flags::all_events};
+
     for (size_t i = 0; i < 1; ++i) {
+        tasks.push_back(poll_ino_events(watch));
+        tasks.push_back(poll_ino_events(watch));
+        tasks.push_back(destroy_after_10s(watch));
+        tasks.push_back(statx_test());
         tasks.push_back(test());
         tasks.push_back(proc());
         tasks.push_back(proc2());
@@ -76,6 +110,23 @@ task<int> coro_main(std::span<char*>) {
 
     for (auto& t : tasks)
         co_await t;
+}
 
+task<int> async_main(std::span<char*>) try {
+    auto f1 = async::spawn_child([] -> task<void> {
+        auto t1 = async::spawn_child(test_async);
+        auto t2 = test_async();
+        co_await t1;
+        co_await t2;
+    });
+    auto f2 = async::spawn_child(test_async);
+    auto f3 = test_async();
+
+    co_await f1;
+    co_await f2;
+    co_await f3;
     co_return 0;
+} catch (const std::exception& e) {
+    glog().error("Exception in main: {}", e.what());
+    co_return 1;
 }

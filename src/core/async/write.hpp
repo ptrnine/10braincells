@@ -9,12 +9,15 @@ namespace core::async {
 template <typename Lazy>
 struct write_provider {
     task<sys::syscall_result<size_t>> write(sys::fd_t fd, const void* data, size_t size) {
-        auto res = co_await make_awaitable<ssize_t>([&fd, &data, &size](awaitable_base<ssize_t>& awaitable) {
-            auto& sqe = current_ctx->get_sqe();
-            io_uring_prep_write(&sqe, int(fd), data, unsigned(size), 0);
-            io_uring_sqe_set_data(&sqe, &awaitable);
-            io_uring_submit(current_ctx->get_ring());
-        });
+        auto res = co_await io::uring::make_uring_awaitable(
+            [&fd, &data, &size](io::uring::uring_awaitable& awaitable) {
+                auto& sqe = current_ctx->get_sqe();
+                io_uring_prep_write(&sqe, int(fd), data, unsigned(size), 0);
+                io_uring_sqe_set_data(&sqe, &awaitable);
+                io_uring_submit(current_ctx->get_ring());
+            },
+            async_task_type::write
+        );
         co_return sys::syscall_result<size_t>{res};
     }
 

@@ -10,12 +10,15 @@ namespace core::async {
 template <typename Lazy>
 struct read_provider {
     task<sys::syscall_result<size_t>> read(sys::fd_t fd, void* output, size_t size) {
-        auto res = co_await make_awaitable<long>([&fd, &output, &size](awaitable_base<long>& awaitable) {
-            auto& sqe = current_ctx->get_sqe();
-            io_uring_prep_read(&sqe, int(fd), output, unsigned(size), 0);
-            io_uring_sqe_set_data(&sqe, &awaitable);
-            io_uring_submit(current_ctx->get_ring());
-        });
+        auto res = co_await io::uring::make_uring_awaitable(
+            [&fd, &output, &size](io::uring::uring_awaitable& awaitable) {
+                auto& sqe = current_ctx->get_sqe();
+                io_uring_prep_read(&sqe, int(fd), output, unsigned(size), 0);
+                io_uring_sqe_set_data(&sqe, &awaitable);
+                io_uring_submit(current_ctx->get_ring());
+            },
+            async_task_type::read
+        );
         co_return sys::syscall_result<size_t>{res};
     }
 

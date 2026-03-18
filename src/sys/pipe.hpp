@@ -77,6 +77,8 @@ inline constexpr pipeflags operator|(pipeflag lhs, pipeflag rhs) {
 /* [[[codegen end]]] */
 
 struct pipe_result {
+    constexpr auto operator<=>(const pipe_result&) const noexcept = default;
+
     fd_t in;
     fd_t out;
 };

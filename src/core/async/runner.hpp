@@ -1,0 +1,225 @@
+#pragma once
+
+#include <exception>
+#include <future>
+
+#include <core/async/cancel.hpp>
+#include <core/async/ctx.hpp>
+#include <core/async/inotify_ctx.hpp>
+#include <core/coro/task.hpp>
+#include <core/finalizer.hpp>
+
+#include <core/io/file.hpp>
+
+#include <sys/signalfd.hpp>
+#include <sys/sigprocmask.hpp>
+#include <thread>
+
+#define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
+
+namespace core::async {
+template <typename Task, typename ResultT>
+struct runner_promise {
+    std::suspend_never initial_suspend() noexcept {
+        return {};
+    }
+    std::suspend_always final_suspend() noexcept {
+        return {};
+    }
+    Task get_return_object() {
+        return Task{std::coroutine_handle<runner_promise>::from_promise(*this)};
+    }
+    void unhandled_exception() noexcept {
+        _exception = std::current_exception();
+    }
+    void return_value(ResultT value) noexcept {
+        _result = mov(value);
+    }
+
+    auto result() {
+        if (_exception) {
+            std::rethrow_exception(_exception);
+        }
+        return mov(_result);
+    }
+
+    async::cancelation_point_t _cancelation_point;
+    ResultT                    _result;
+    std::exception_ptr         _exception;
+
+#ifdef CORO_METAINFO
+    coro_handle_metainfo _metainfo;
+#endif
+
+    void set_metainfo([[maybe_unused]] coro_handle_metainfo metainfo) {
+#ifdef CORO_METAINFO
+        _metainfo = metainfo;
+#endif
+    }
+};
+
+template <typename Task>
+struct runner_promise<Task, void> {
+    std::suspend_never initial_suspend() noexcept {
+        return {};
+    }
+    std::suspend_always final_suspend() noexcept {
+        return {};
+    }
+    Task get_return_object() {
+        return Task{std::coroutine_handle<runner_promise>::from_promise(*this)};
+    }
+    void unhandled_exception() noexcept {
+        _exception = std::current_exception();
+    }
+    void return_void() noexcept {}
+
+    void result() {
+        if (_exception) {
+            std::rethrow_exception(_exception);
+        }
+    }
+
+    async::cancelation_point_t _cancelation_point;
+    std::exception_ptr         _exception;
+
+#ifdef CORO_METAINFO
+    coro_handle_metainfo _metainfo;
+#endif
+
+    void set_metainfo([[maybe_unused]] coro_handle_metainfo metainfo) {
+#ifdef CORO_METAINFO
+        _metainfo = metainfo;
+#endif
+    }
+};
+
+template <typename ResultT>
+struct runner_task {
+    ~runner_task() {
+        if (_handle) {
+            _handle.destroy();
+        }
+    }
+
+    using promise_type = runner_promise<runner_task, ResultT>;
+    std::coroutine_handle<promise_type> _handle;
+};
+
+task<void> stop_by_signal(sys::fd_t sigfd) {
+    if (sigfd == sys::invalid_fd) {
+        co_return;
+    }
+
+    while (auto siginfo = co_await async::read<sys::siginfo>(sigfd)) {
+        if (siginfo->signo == SIGINT || siginfo->signo == SIGTERM) {
+            for (auto sigpipe : current_ctx->child_signalfd_pipes()) {
+                sys::write(sigpipe.out, *siginfo);
+            }
+
+            glog().warn("Received signal {} in thread {x}, terminating", siginfo->signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
+            //if (current_ctx->child_signalfd_pipes().size())
+            (co_await async::cancel_all()).throw_if_error();
+            break;
+        }
+    }
+}
+
+auto runner_launch(auto&& start_coro, sys::fd_t signalfd) -> task<typename decay<decltype(start_coro())>::result_type> {
+    auto main    = start_coro();
+    auto inotify = async::inotify_ctx().run();
+    auto signal  = stop_by_signal(signalfd);
+
+    std::exception_ptr exception;
+
+    if constexpr (is_same<void, typename decay<decltype(start_coro())>::result_type>) {
+        try {
+            co_await main;
+        } catch (...) {
+            exception = std::current_exception();
+        }
+
+        co_await async::inotify_ctx().stop();
+        co_await inotify;
+        co_await signal.cancel();
+        co_await signal;
+        co_await lost_tasks().wait_all();
+
+        if (exception) {
+            std::rethrow_exception(exception);
+        }
+    } else {
+        opt<typename decay<decltype(start_coro())>::result_type> res;
+        try {
+            res = co_await main;
+        } catch (...) {
+            exception = std::current_exception();
+        }
+
+        co_await async::inotify_ctx().stop();
+        co_await inotify;
+        co_await signal.cancel();
+        co_await signal;
+        co_await lost_tasks().wait_all();
+
+        if (exception) {
+            std::rethrow_exception(exception);
+        }
+
+        co_return *res;
+    }
+}
+
+auto runner_coro_entry(auto&& start_coro, sys::fd_t signalfd) -> runner_task<typename decay<decltype(start_coro())>::result_type> {
+    finalizer on_exit{[] { current_ctx->exit(); }};
+    co_return co_await runner_launch(fwd(start_coro), signalfd);
+}
+
+auto run(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
+    using namespace core;
+
+    glog().info("start async context at thread {x}", std::this_thread::get_id());
+
+    // TODO: save inotify and lost_tasks contexts
+    auto      prev_ctx = current_ctx;
+    finalizer on_exit{[&] { current_ctx = prev_ctx; }};
+
+    io::uring::ctx ctx{32, io::uring::setup_flags::single_issuer};
+    current_ctx = &ctx;
+    auto result = runner_coro_entry(fwd(start_coro), signalfd);
+    ctx.run();
+    return result._handle.promise().result();
+}
+
+auto run_in_thread(auto&& start_coro, sys::fd_t signalfd = sys::invalid_fd) {
+    return std::async(std::launch::async, [f = fwd(start_coro), sigfd = mov(signalfd)] mutable { return run(mov(f), sigfd); });
+}
+
+auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro())>::result_type> {
+    std::future<typename decay<decltype(start_coro())>::result_type> res;
+
+    auto signalfd_pipe = io::file::pipe();
+    sys::pipe_result sigpipe = signalfd_pipe;
+
+    co_await make_awaitable<long>(
+        [&res, coro = fwd(start_coro), sigpipe]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+            caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
+            caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::spawn_child});
+
+            // TODO: thread tasks cancelation
+            current_ctx->add_child_signalfd_pipe(sigpipe);
+            current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = sigpipe.in](sys::fd_t efd) mutable {
+                res = std::async(std::launch::async, [coro = mov(coro), efd, sigfd] mutable {
+                    finalizer f{[efd] { sys::write(efd, u64(1)); }};
+                    return run(mov(coro), sigfd);
+                });
+            });
+        }
+    );
+    current_ctx->remove_child_signalfd_pipe(sigpipe);
+
+    co_return res.get();
+}
+} // namespace core::async
+
+#undef fwd

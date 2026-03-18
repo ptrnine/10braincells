@@ -1,7 +1,10 @@
 #pragma once
 
-#include <core/opt.hpp>
 #include <coroutine>
+
+#include <core/async/cancelation_point.hpp>
+#include <core/coro/coro_handle_metainfo.hpp>
+#include <core/opt.hpp>
 
 namespace core {
 template <typename T>
@@ -37,12 +40,14 @@ struct async_generator {
         return false;
     }
 
-    void await_suspend(std::coroutine_handle<> caller) noexcept {
+    template <typename Promise>
+    void await_suspend(std::coroutine_handle<Promise> caller) noexcept {
         if (_handle.done()) {
             caller.resume();
             return;
         }
         _handle.promise()._waiter = caller;
+        caller.promise()._cancelation_point = _handle.promise()._cancelation_point;
         _handle.resume();
     }
 
@@ -64,7 +69,18 @@ template <typename T>
 struct async_generator_promise {
     core::opt<T>            _current_value;
     std::exception_ptr      _exception;
-    std::coroutine_handle<> _waiter;
+    std::coroutine_handle<>    _waiter;
+    async::cancelation_point_t _cancelation_point;
+
+#ifdef CORO_METAINFO
+    coro_handle_metainfo _metainfo;
+#endif
+
+    void set_metainfo([[maybe_unused]] coro_handle_metainfo metainfo) {
+#ifdef CORO_METAINFO
+        _metainfo = metainfo;
+#endif
+    }
 
     async_generator<T> get_return_object() noexcept {
         return async_generator<T>{std::coroutine_handle<async_generator_promise>::from_promise(*this)};
@@ -100,7 +116,6 @@ struct async_generator_promise {
 
     void return_void() noexcept {}
 
-    // Обработка co_yield
     auto yield_value(T value) noexcept {
         _current_value = std::move(value);
         return awaiter{*this};

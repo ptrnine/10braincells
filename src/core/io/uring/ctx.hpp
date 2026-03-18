@@ -1,19 +1,25 @@
 #pragma once
-#include <core/moveonly_trivial.hpp>
 #include <liburing.h>
+#include <set>
+#include <unordered_map>
 
+#include <sys/close.hpp>
+#include <sys/eventfd.hpp>
+#include <sys/open_flags.hpp>
+#include <sys/poll.hpp>
+
+#include <core/async/awaitable_type.hpp>
+#include <core/async/cancelation_point.hpp>
+#include <core/coro/awaitable.hpp>
+#include <core/coro/coro_handle_metainfo.hpp>
 #include <core/errc_exception.hpp>
 #include <core/io/uring/structs.hpp>
+#include <core/moveonly_trivial.hpp>
 #include <core/opt.hpp>
-#include <core/coro/awaitable.hpp>
-#include <sys/close.hpp>
-#include <sys/open_flags.hpp>
-#include <sys/eventfd.hpp>
-#include <sys/poll.hpp>
-#include <unordered_map>
-//#include <util/log.hpp>
 
-//#include <sys/waitid.hpp>
+#include <util/log.hpp>
+
+#define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
 namespace core::io::uring {
 class uring_exception : public errc_exception {
@@ -28,10 +34,20 @@ public:
 
 using uring_awaitable = awaitable_base<long>;
 
-namespace masks {
-    enum uring_data_masks : u64 {
-        thread_task = 1LLU << 63,
+auto make_uring_awaitable(auto&& suspend_handler, async_task_type task_type = async_task_type::unknown) {
+    auto suspend_handler2 = [sh = fwd(suspend_handler)
+#ifdef CORO_METAINFO
+                                 ,
+                             task_type
+#endif
+    ]<typename Promise>(uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+        sh(awaitable);
+        caller.promise()._cancelation_point.set((u64)&awaitable, async::awaitable_type::uring);
+#ifdef CORO_METAINFO
+        caller.promise().set_metainfo(coro_handle_metainfo{.awaitable_type = async::awaitable_type::uring, .task_type = task_type});
+#endif
     };
+    return awaitable<remove_cvref<decltype(suspend_handler2)>, long>{mov(suspend_handler2)};
 }
 
 class ctx {
@@ -76,48 +92,22 @@ public:
     ctx(const ctx&) noexcept            = delete;
     ctx& operator=(const ctx&) noexcept = delete;
 
-    static void msec_to_ts(__kernel_timespec* ts, unsigned int msec) {
-        ts->tv_sec  = msec / 1000;
-        ts->tv_nsec = (msec % 1000) * 1000000;
-    }
-
-    auto sleep(__kernel_timespec& time) {
-        return make_awaitable<int>([this, &time](awaitable_base<int>& awaitable) {
-            auto& sqe = get_sqe();
-            io_uring_prep_timeout(&sqe, &time, 0, 0);
-            io_uring_sqe_set_data(&sqe, &awaitable);
-            io_uring_submit(&*ring);
-            // io_uring_submit_and_wait(&*ring, 1);
-            // handle_cq();
-        });
-    }
-
-    //awaitable waitid(sys::wait_type idtype, sys::fd_t id, sys::siginfo_t& siginfo, sys::wait_flags options) {
-    //    auto sqe = get_sqe();
-    //    if (!sqe) {
-    //        throw std::runtime_error("SUKA");
-    //    }
-
-    //    io_uring_prep_waitid(sqe, idtype_t(idtype), id_t(id), (siginfo_t*)&siginfo, options.value, 0);
-    //    return {&*ring, sqe};
-    //    // sqe->user_data = (u64)h.
-    //    // io_uring_submit((io_uring*)&ring);
-    //}
-
     void handle_cq() {
         io_uring_cqe* cqe = nullptr;
         unsigned head = 0;
         //unsigned i = 0;
         io_uring_for_each_cqe(&*ring, head, cqe) {
-            if (cqe->user_data & masks::thread_task) {
-                cqe->user_data &= ~masks::thread_task;
+            auto [awaitable, type] = async::unpack_awaitable(cqe->user_data);
+
+            if (type == async::awaitable_type::uring_threaded) {
                 auto  efd       = sys::fd_t(cqe->user_data);
                 auto  task_it   = thread_tasks.find(efd);
                 auto* awaitable = task_it->second.awaitable;
                 awaitable->resume(cqe->res);
                 thread_tasks.erase(task_it);
             } else {
-                auto* awaitable = to_awaitable_ptr<long>(cqe->user_data);
+                auto* awaitable = (uring_awaitable*)(cqe->user_data);
+                // glog().debug("resume {x}", (u64)awaitable);
                 awaitable->resume(cqe->res);
             }
             //io_uring_cqe_seen(&*ring, cqe);
@@ -128,12 +118,12 @@ public:
         io_uring_smp_store_release(ring->cq.khead, head);
     }
 
-    void exit(int code = 0) {
-        _exit = code;
+    void exit() {
+        _running = false;
     }
 
-    int run() {
-        while (!_exit) {
+    void run() {
+        while (_running) {
             io_uring_cqe* cqe;
             auto rc = io_uring_wait_cqe(&*ring, &cqe);
             //int rc = io_uring_wait_cqe(&*ring, 1);
@@ -141,8 +131,6 @@ public:
                 throw uring_exception{-rc};
             handle_cq();
         }
-
-        return *_exit;
     }
 
     io_uring_sqe& get_sqe() {
@@ -161,10 +149,22 @@ public:
         auto& sqe = get_sqe();
         auto efd = sys::eventfd(0, sys::eventfd_flags::nonblock).get();
         io_uring_prep_poll_add(&sqe, int(efd), unsigned(sys::poll_event::in));
-        io_uring_sqe_set_data64(&sqe, u64(efd) | masks::thread_task);
+        io_uring_sqe_set_data64(&sqe, async::pack_awaitable(u64(efd), async::awaitable_type::uring_threaded));
         thread_tasks.emplace(efd, thread_task{efd, &awaitable});
         io_uring_submit(get_ring());
         launcher(efd);
+    }
+
+    auto& child_signalfd_pipes() const {
+        return _child_signalfd_pipes;
+    }
+
+    void add_child_signalfd_pipe(sys::pipe_result pipe) {
+        _child_signalfd_pipes.emplace(pipe);
+    }
+
+    void remove_child_signalfd_pipe(sys::pipe_result pipe) {
+        _child_signalfd_pipes.emplace(pipe);
     }
 
 private:
@@ -178,8 +178,11 @@ private:
 
 private:
     opt<io_uring> ring;
-    opt<int>      _exit;
+    bool          _running = true;
 
     std::unordered_map<sys::fd_t, thread_task> thread_tasks;
+    std::set<sys::pipe_result>                 _child_signalfd_pipes;
 };
 } // namespace core::io::uring
+
+#undef fwd

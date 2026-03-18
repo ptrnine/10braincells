@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cstdlib>
+
 #include <core/basic_types.hpp>
+#include <core/concepts/convertible_to.hpp>
+#include <core/null.hpp>
 #include <core/traits/is_array.hpp>
 #include <core/traits/is_same.hpp>
 #include <core/traits/remove_extent.hpp>
-#include <cstdlib>
 
 namespace core {
 template <typename T, typename Deleter = void>
@@ -13,14 +16,18 @@ public:
     using type = remove_extent<T>;
 
     constexpr box(): ptr(nullptr) {}
-    constexpr box(type* pointer): ptr(pointer) {}
+
+    explicit constexpr box(type* pointer): ptr(pointer) {}
+    explicit constexpr box(std::nullptr_t): ptr(nullptr) {}
+    explicit constexpr box(null_t): ptr(nullptr) {}
 
     constexpr box(const box&)            = delete;
     constexpr box& operator=(const box&) = delete;
 
-    constexpr box(box&& another_box) noexcept: ptr(another_box.ptr) {
-        another_box.ptr = nullptr;
-    }
+    constexpr box(box&& another_box) noexcept: ptr(another_box.release()) {}
+
+    template <typename U> requires convertible_to<U*,T*> && (!is_array<U>)
+    constexpr box(box<U>&& another_box) noexcept: ptr(another_box.release()) {}
 
     constexpr ~box() {
         if (ptr)
@@ -32,8 +39,7 @@ public:
             return *this;
 
         destroy();
-        ptr             = another_box.ptr;
-        another_box.ptr = nullptr;
+        ptr = another_box.release();
 
         return *this;
     }
@@ -65,6 +71,12 @@ public:
 
     void replace(type* new_ptr) {
         ptr = new_ptr;
+    }
+
+    T* release() {
+        T* result = ptr;
+        ptr = nullptr;
+        return result;
     }
 
 protected:

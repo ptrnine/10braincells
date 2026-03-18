@@ -9,6 +9,7 @@
 #include <sys/open_flags.hpp>
 #include <sys/pidfd_open.hpp>
 #include <sys/pipe.hpp>
+#include <sys/signalfd.hpp>
 
 #include <core/io/basic_types.hpp>
 
@@ -48,6 +49,14 @@ public:
 
     static constexpr file eventfd(u32 init, sys::eventfd_flags flags = {}) {
         return {sys::eventfd(init, flags).get()};
+    }
+
+    static file signalfd(sys::fd_t fd, sys::sigset mask, sys::sigfd_flags flags = sys::sigfd_flag::none) {
+        return {sys::signalfd(fd, mask, flags).get()};
+    }
+
+    static file signalfd(sys::sigset mask, sys::sigfd_flags flags = sys::sigfd_flag::none) {
+        return {sys::signalfd(mask, flags).get()};
     }
 
     static constexpr auto pipe(pipeflags flags = {});

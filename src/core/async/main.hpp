@@ -1,38 +1,15 @@
 #pragma once
 
-#include <core/async/ctx.hpp>
-#include <core/coro/task.hpp>
-#include <core/io/uring/ctx.hpp>
+#include <core/async/runner.hpp>
+#include <core/io/file.hpp>
 
-core::task<int> coro_main(std::span<char*> args);
-
-namespace core {
-struct coro_main_task {
-    struct promise_type {
-        std::suspend_never initial_suspend() noexcept {
-            return {};
-        }
-        std::suspend_never final_suspend() noexcept {
-            return {};
-        }
-        void           unhandled_exception() noexcept {}
-        coro_main_task get_return_object() {
-            return {};
-        }
-        void return_void() {}
-    };
-};
-
-coro_main_task main_entry(int argc, char** argv) {
-    current_ctx->exit(co_await coro_main(std::span{argv, size_t(argc)}));
-}
-} // namespace core
+core::task<int> async_main(std::span<char*> args);
 
 int main(int argc, char** argv) {
-    using namespace core;
+    auto sigset = sys::sigset::empty();
+    sigset.add(SIGINT, SIGTERM);
+    sys::sigprocmask(sys::sigmask::block, sigset).throw_if_error();
+    auto signalfd = core::io::file::signalfd(sigset, sys::sigfd_flag::close_exec);
 
-    io::uring::ctx ctx{32};
-    current_ctx = &ctx;
-    main_entry(argc, argv);
-    return ctx.run();
+    return core::async::run([argc, argv] { return async_main(std::span{argv, size_t(argc)}); }, core::mov(signalfd));
 }

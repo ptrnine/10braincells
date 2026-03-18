@@ -10,7 +10,7 @@
 namespace core {
 template <typename T>
 struct awaitable_base {
-    std::coroutine_handle<> _ctx;
+    std::coroutine_handle<> _caller;
     T                       _result;
 
     bool await_ready() const noexcept {
@@ -23,6 +23,21 @@ struct awaitable_base {
 
     void resume(const T& value) {
         _result = value;
+        _caller.resume();
+    }
+};
+
+template <>
+struct awaitable_base<void> {
+    std::coroutine_handle<> _ctx;
+
+    bool await_ready() const noexcept {
+        return false;
+    }
+
+    void await_resume() const noexcept {}
+
+    void resume() {
         _ctx.resume();
     }
 };
@@ -33,9 +48,11 @@ struct awaitable : awaitable_base<T> {
 
     F suspend_handler;
 
-    void await_suspend(std::coroutine_handle<> ctx) noexcept {
-        this->_ctx = ctx;
-        suspend_handler(*this);
+    template <typename Promise>
+    void await_suspend(std::coroutine_handle<Promise> caller) noexcept {
+        //ctx.promise()._cancelation_point = {(u64)this};
+        this->_caller = caller;
+        suspend_handler(*this, caller);
     }
 };
 

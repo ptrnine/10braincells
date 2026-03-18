@@ -15,11 +15,12 @@ template <size_t BuffSize = sys::dirent_default_buffer_size>
 task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t fd) {
     std::future<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> res;
 
-    co_await make_awaitable<long>([&res, fd](io::uring::uring_awaitable& awaitable) mutable {
+    co_await make_awaitable<long>([&res, fd]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+        caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
+        caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::getdents});
+        // TODO: thread tasks cancelation
         current_ctx->schedule_thread_task(awaitable, [&res, fd](sys::fd_t efd) mutable {
-            res = std::async(std::launch::async, [fd]{
-                return sys::getdents<BuffSize>(fd);
-            });
+            res = std::async(std::launch::async, [fd] { return sys::getdents<BuffSize>(fd); });
             res.wait();
             sys::write(efd, u64(1));
         });
@@ -31,13 +32,16 @@ task<sys::syscall_result<sys::dirent_result<u8[BuffSize]>>> getdents(sys::fd_t f
 task<sys::syscall_result<sys::dirent_result<u8*>>> getdents(sys::fd_t fd, std::span<u8> buff) {
     std::future<sys::syscall_result<sys::dirent_result<u8*>>> res;
 
-    co_await make_awaitable<long>([&res, fd, buff](io::uring::uring_awaitable& awaitable) mutable {
+    co_await make_awaitable<long>([&res, fd, buff]<typename Promise>(io::uring::uring_awaitable& awaitable, std::coroutine_handle<Promise>& caller) mutable {
+        caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
+        caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::getdents});
+        // TODO: thread tasks cancelation
         current_ctx->schedule_thread_task(awaitable, [&res, fd, buff](sys::fd_t efd) mutable {
-            res = std::async(std::launch::async, [fd, buff]{
-                return sys::getdents(fd, buff);
+            res = std::async(std::launch::async, [fd, buff, efd]{
+                auto res = sys::getdents(fd, buff);
+                sys::write(efd, u64(1));
+                return res;
             });
-            res.wait();
-            sys::write(efd, u64(1));
         });
     });
 

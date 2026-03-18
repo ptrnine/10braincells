@@ -10,8 +10,7 @@
 
 namespace core::async {
 template <typename... Ts>
-    requires(core::null_term_string<core::decay<Ts>> || ... || false) &&
-    (core::convertible_to<Ts, sys::openflags> || ... || false)
+    requires(core::null_term_string<core::decay<Ts>> || ... || false) && (core::convertible_to<Ts, sys::openflags> || ... || false)
 task<sys::syscall_result<sys::fd_t>> openat(sys::fd_t dirfd, Ts&&... args) {
     const char*     pathname;
     sys::openflags  flags = sys::openflag::large;
@@ -27,12 +26,15 @@ task<sys::syscall_result<sys::fd_t>> openat(sys::fd_t dirfd, Ts&&... args) {
             }
         );
 
-    auto res = co_await make_awaitable<long>([&dirfd, pathname, &flags, &mode](awaitable_base<long>& awaitable) {
-        auto& sqe = current_ctx->get_sqe();
-        io_uring_prep_openat(&sqe, int(dirfd), pathname, flags.value, mode.to_int());
-        io_uring_sqe_set_data(&sqe, &awaitable);
-        io_uring_submit(current_ctx->get_ring());
-    });
+    auto res = co_await io::uring::make_uring_awaitable(
+        [&dirfd, pathname, &flags, &mode](io::uring::uring_awaitable& awaitable) {
+            auto& sqe = current_ctx->get_sqe();
+            io_uring_prep_openat(&sqe, int(dirfd), pathname, flags.value, mode.to_int());
+            io_uring_sqe_set_data(&sqe, &awaitable);
+            io_uring_submit(current_ctx->get_ring());
+        },
+        async_task_type::inotify_watch_wait
+    );
 
     co_return sys::syscall_result<sys::fd_t>{res};
 }
