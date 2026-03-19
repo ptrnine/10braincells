@@ -37,6 +37,10 @@ task<sys::syscall_result<void>> sleep(std::chrono::nanoseconds duration) {
         async_task_type::sleep
     );
 
-    co_return sys::syscall_result<void>::make_error(int(-res));
+    if (errc{int(-res)} == errc::etime) {
+        res = 0;
+    }
+
+    co_return sys::syscall_result<void>{res};
 }
 } // namespace core::async

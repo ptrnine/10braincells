@@ -1,4 +1,3 @@
-#include <core/io/uring/ctx.hpp>
 #define CORO_METAINFO
 
 #include <core/async/main.hpp>
@@ -87,7 +86,7 @@ task<void> poll_ino_events(async::inotify_watch& watch) {
 }
 
 task<void> destroy_after_10s(async::inotify_watch& watch) {
-    co_await async::sleep(std::chrono::seconds{10});
+    (co_await async::sleep(std::chrono::seconds{10})).throw_if_error();
     watch = {};
 }
 
@@ -114,19 +113,17 @@ task<void> test_async() {
 }
 
 task<int> async_main(std::span<char*>) try {
-    auto f1 = async::spawn_child([] -> task<void> {
-        auto t1 = async::spawn_child(test_async);
+    auto f1 = async::async_run_io_ctx([] -> task<void> {
+        auto t1 = async::async_run_io_ctx(test_async);
         auto t2 = test_async();
         co_await t1;
         co_await t2;
     });
-    auto f2 = async::spawn_child(test_async);
+    auto f2 = async::async_run_io_ctx(test_async);
     auto f3 = test_async();
-    async::run(test_async);
+    async::run_io_ctx(test_async);
 
-    co_await f1;
-    co_await f2;
-    co_await f3;
+    co_await async::wait_all(f1, f2, f3);
     co_return 0;
 } catch (const std::exception& e) {
     glog().error("Exception in main: {}", e.what());

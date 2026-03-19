@@ -12,5 +12,5 @@ int main(int argc, char** argv) {
     auto signalfd = core::io::file::signalfd(sigset, sys::sigfd_flag::close_exec);
     core::async::current_signalfd = &signalfd;
 
-    return core::async::run([argc, argv] { return async_main(std::span{argv, size_t(argc)}); });
+    return core::async::run_io_ctx([argc, argv] { return async_main(std::span{argv, size_t(argc)}); });
 }

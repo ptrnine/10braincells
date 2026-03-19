@@ -12,6 +12,8 @@
 #include <core/ranges/range.hpp>
 #include <core/ring_buffer.hpp>
 
+#define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
+
 namespace core::async {
 static inline constexpr size_t inotify_event_buff_size     = (sizeof(sys::inotify_event) + constants::name_max) * 2;
 static inline constexpr size_t inotify_max_events_per_read = inotify_event_buff_size / sizeof(sys::inotify_event);
@@ -45,6 +47,23 @@ struct wd_event_buffer {
     size_t                push_count = 0;
 };
 
+template <typename F, typename T>
+struct inotify_awaitable : awaitable<F, T> {
+    inotify_awaitable(sys::wd_t wd, auto&& isuspend_handler): awaitable<F, T>(fwd(isuspend_handler)), _wd(wd) {}
+
+    ~inotify_awaitable();
+
+    inotify_awaitable(inotify_awaitable&&) noexcept = default;
+    inotify_awaitable& operator=(inotify_awaitable&&) noexcept = delete;
+
+    moveonly_trivial<sys::wd_t, sys::invalid_wd> _wd;
+};
+
+template <typename T>
+auto make_inotify_awaitable(sys::wd_t wd, auto&& suspend_handler) {
+    return inotify_awaitable<remove_cvref<decltype(suspend_handler)>, T>{wd, fwd(suspend_handler)};
+}
+
 class inotify_ctx {
 public:
     inotify_ctx() {
@@ -63,7 +82,7 @@ public:
     task<> run() {
         u8 buff[inotify_event_buff_size];
 
-        std::vector<awaitable_base<sys::syscall_result<void>>*> resume_list;
+        std::vector<sys::wd_t> resume_wds;
 
         while (true) {
             auto res = sys::syscall_result<size_t>::make_error(errc::ecanceled);
@@ -72,16 +91,7 @@ public:
                 res = co_await read_task;
             }
             if (!res) {
-                for (auto&& [_, consumer] : consumers) {
-                    for (auto& awaitable : consumer.awaitables) {
-                        awaitable->resume(res.error());
-                    }
-                }
-                consumers.clear();
-                if (res.error() == errc::ecanceled) {
-                    break;
-                }
-                throw errc_exception(res.unsafe_error());
+                co_return cancel_consumers(res);
             }
             auto size = res.unsafe_get();
 
@@ -97,17 +107,14 @@ public:
                             .name  = std::string(event->name()),
                         }
                     );
-                    for (auto awaitable : consumer_it->second.awaitables) {
-                        resume_list.push_back(awaitable);
-                    }
-                    consumer_it->second.awaitables.clear();
+                    resume_wds.push_back(consumer_it->first);
                 }
             }
 
-            for (auto awaitable : resume_list) {
-                awaitable->resume(errc{});
+            for (auto wd : resume_wds) {
+                resume_consumer(wd);
             }
-            resume_list.clear();
+            resume_wds.clear();
         }
     }
 
@@ -137,45 +144,94 @@ public:
         if (result) {
             auto it = consumers.find(wd);
             if (it != consumers.end()) {
-                for (auto& awaitable : it->second.awaitables) {
+                auto& consumer = it->second;
+
+                for (auto awaitable_it = consumer.awaitables.begin(); awaitable_it != consumer.awaitables.end();) {
+                    auto awaitable = mov(*awaitable_it);
+                    awaitable_it   = consumer.awaitables.erase(awaitable_it);
                     awaitable->resume({errc::ecanceled});
                 }
-                consumers.erase(wd);
+
+                consumers.erase(it);
             }
         }
         return result;
     }
 
-    auto await_event_from(sys::wd_t wd) {
-        return make_awaitable<sys::syscall_result<void>>(
-            [this, wd]<typename Promise>(awaitable_base<sys::syscall_result<void>>& awaitable, std::coroutine_handle<Promise>& caller) {
-                subscribe_wd(wd, awaitable);
+    task<sys::syscall_result<void>> await_event_from(sys::wd_t wd) {
+        auto res = co_await make_inotify_awaitable<sys::syscall_result<void>>(
+            wd, [this, wd]<typename Promise>(awaitable_base<sys::syscall_result<void>>& awaitable, std::coroutine_handle<Promise>& caller) {
+                add_resume_point(wd, awaitable);
                 caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::inotify_wd_event);
                 caller.promise().set_metainfo({awaitable_type::inotify_wd_event, async_task_type::inotify_watch_wait});
             }
         );
+        co_return res;
     }
 
     sys::syscall_result<size_t> cancel(u64 awaitable) {
         for (auto& consumer : consumers) {
             auto& awaitables = consumer.second.awaitables;
-            auto  it         = std::ranges::find(awaitables, (awaitable_base<sys::syscall_result<void>>*)awaitable);
+            auto  it         = awaitables.find((awaitable_base<sys::syscall_result<void>>*)awaitable);
             if (it != awaitables.end()) {
-                (*it)->resume({errc::ecanceled});
+                auto awaitable = *it;
                 awaitables.erase(it);
+                awaitable->resume({errc::ecanceled});
                 return {1};
             }
         }
         return sys::syscall_result<size_t>{errc::enoent};
     }
 
-private:
-    void subscribe_wd(sys::wd_t wd, awaitable_base<sys::syscall_result<void>>& awaitable) {
-        consumers[wd].awaitables.emplace_back(&awaitable);
+    void add_resume_point(sys::wd_t wd, awaitable_base<sys::syscall_result<void>>& awaitable) {
+        consumers[wd].awaitables.emplace(&awaitable);
     }
+
+    void remove_resume_point(sys::wd_t wd, awaitable_base<sys::syscall_result<void>>& awaitable) {
+        auto consumer_it = consumers.find(wd);
+        if (consumer_it != consumers.end()) {
+
+            auto& awaitables = consumer_it->second.awaitables;
+            auto  found      = awaitables.find(&awaitable);
+            if (found != awaitables.end()) {
+                awaitables.erase(found);
+            }
+        }
+    }
+
+private:
+    void cancel_consumers(sys::syscall_result<size_t>& result) {
+        for (auto it = consumers.begin(); it != consumers.end();) {
+            auto consumer = mov(it->second);
+            it            = consumers.erase(it);
+
+            for (auto awaitable_it = consumer.awaitables.begin(); awaitable_it != consumer.awaitables.end();) {
+                auto awaitable = mov(*awaitable_it);
+                awaitable_it   = consumer.awaitables.erase(awaitable_it);
+                awaitable->resume(result.error());
+            }
+        }
+
+        if (result.error() != errc::ecanceled) {
+            throw errc_exception(result.unsafe_error());
+        }
+    }
+
+    void resume_consumer(sys::wd_t wd) {
+        auto consumer_it = consumers.find(wd);
+        if (consumer_it == consumers.end()) {
+            return;
+        }
+
+        auto awaitables = mov(consumer_it->second.awaitables);
+        for (auto awaitable : awaitables) {
+            awaitable->resume(errc{});
+        }
+    }
+
     struct consumer_state {
-        wd_event_buffer*                                        buff;
-        std::vector<awaitable_base<sys::syscall_result<void>>*> awaitables;
+        wd_event_buffer*                                     buff;
+        std::set<awaitable_base<sys::syscall_result<void>>*> awaitables;
     };
 
     sys::fd_t                           fd = sys::invalid_fd;
@@ -185,4 +241,11 @@ private:
 };
 
 inline thread_local inotify_ctx* current_inotify_ctx = nullptr;
+
+template <typename F, typename T>
+inotify_awaitable<F, T>::~inotify_awaitable() {
+    current_inotify_ctx->remove_resume_point(_wd, *this);
+}
 } // namespace core::async
+
+#undef fwd

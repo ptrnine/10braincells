@@ -41,8 +41,8 @@ public:
         return _events->view_from(last_push_count);
     }
 
-    task<sys::syscall_result<void>> wait() const {
-        co_return co_await current_inotify_ctx->await_event_from(_wd);
+    auto wait() const {
+        return current_inotify_ctx->await_event_from(_wd);
     }
 
     class event_poller {

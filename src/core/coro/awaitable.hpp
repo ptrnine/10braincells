@@ -2,6 +2,8 @@
 
 #include <coroutine>
 
+#include <util/log.hpp>
+
 #include <core/basic_types.hpp>
 #include <core/traits/remove_cvref.hpp>
 

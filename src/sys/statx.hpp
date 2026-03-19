@@ -40,3 +40,5 @@ auto statx(auto&&... args) {
     return info;
 }
 } // namespace sys
+
+#undef fwd

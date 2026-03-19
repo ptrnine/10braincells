@@ -6,6 +6,7 @@
 #include <core/async/cancel.hpp>
 #include <core/async/inotify_ctx.hpp>
 #include <core/coro/task.hpp>
+#include <core/coro/wait_all.hpp>
 #include <core/finalizer.hpp>
 #include <core/io/uring/ctx.hpp>
 
@@ -15,6 +16,7 @@
 #include <sys/signalfd.hpp>
 #include <sys/sigprocmask.hpp>
 #include <sys/siginfo.hpp>
+#include <thread>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -124,6 +126,7 @@ namespace details {
                 glog().warn("Received signal {} in thread {x}, terminating", siginfo->signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
                 // if (current_ctx->child_signalfd_pipes().size())
                 (co_await async::cancel_all()).throw_if_error();
+                io::uring::current_ctx->block_new_tasks();
                 break;
             }
         }
@@ -148,6 +151,7 @@ namespace details {
             glog().warn("Received kill event {} in thread {x}, terminating", *signo == SIGINT ? "SIGINT" : "SIGTERM", std::this_thread::get_id());
             // if (current_ctx->child_signalfd_pipes().size())
             (co_await async::cancel_all()).throw_if_error();
+            io::uring::current_ctx->block_new_tasks();
         }
     }
 
@@ -170,11 +174,7 @@ namespace details {
             co_await inotify;
             io::uring::current_ctx->block_new_tasks();
 
-            co_await signal.cancel();
-            co_await kill_event.cancel();
-            co_await signal;
-            co_await kill_event;
-            co_await current_final_task_waiter->wait_all();
+            co_await async::wait_all(signal.cancel(), kill_event.cancel(), signal, kill_event, current_final_task_waiter->wait_all());
 
             if (exception) {
                 std::rethrow_exception(exception);
@@ -191,11 +191,7 @@ namespace details {
             co_await inotify;
             io::uring::current_ctx->block_new_tasks();
 
-            co_await signal.cancel();
-            co_await kill_event.cancel();
-            co_await signal;
-            co_await kill_event;
-            co_await current_final_task_waiter->wait_all();
+            co_await async::wait_all(signal.cancel(), kill_event.cancel(), signal, kill_event, current_final_task_waiter->wait_all());
 
             if (exception) {
                 std::rethrow_exception(exception);
@@ -213,8 +209,7 @@ namespace details {
 
 thread_local io::file* current_signalfd = nullptr;
 
-// TODO: signals
-auto run(auto&& start_coro) {
+auto run_io_ctx(auto&& start_coro) {
     glog().info("start async context at thread {x}", std::this_thread::get_id());
 
     auto      prev_ctx = std::tuple{io::uring::current_ctx, async::current_inotify_ctx, current_final_task_waiter};
@@ -233,12 +228,12 @@ auto run(auto&& start_coro) {
     final_task_waiter waiter;
     current_final_task_waiter = &waiter;
 
-    auto result = details::runner_coro_entry(fwd(start_coro), *current_signalfd);
+    auto result = async::details::runner_coro_entry(fwd(start_coro), *current_signalfd);
     ctx.run();
     return result._handle.promise().result();
 }
 
-auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro())>::result_type> {
+auto async_run_io_ctx(auto&& start_coro) -> task<typename decay<decltype(start_coro())>::result_type> {
     std::future<typename decay<decltype(start_coro())>::result_type> res;
 
     auto sigpipe = io::file::pipe();
@@ -252,13 +247,12 @@ auto spawn_child(auto&& start_coro) -> task<typename decay<decltype(start_coro()
             caller.promise()._cancelation_point.set((u64)&awaitable, awaitable_type::uring_threaded);
             caller.promise().set_metainfo({awaitable_type::uring_threaded, async_task_type::spawn_child});
 
-            // TODO: thread tasks cancelation
             io::uring::current_ctx->add_child_signalfd_pipe(sigpipe);
             io::uring::current_ctx->schedule_thread_task(awaitable, [&res, coro = mov(coro), sigfd = &sigpipe.in](sys::fd_t efd) mutable {
                 res = std::async(std::launch::async, [coro = mov(coro), efd, sigfd] mutable {
                     finalizer f{[efd] { sys::write(efd, u64(1)); }};
                     current_signalfd = sigfd;
-                    return run(mov(coro));
+                    return run_io_ctx(mov(coro));
                 });
             });
         }
