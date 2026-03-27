@@ -1,7 +1,7 @@
 #pragma once
 
-#include <core/async/inotify_ctx.hpp>
-#include <core/coro/task.hpp>
+#include <core/async/sys/inotify_ctx.hpp>
+#include <core/async/task.hpp>
 #include <core/io/uring/ctx.hpp>
 
 namespace core::async {

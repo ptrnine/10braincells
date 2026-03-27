@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/aggregate_exception.hpp>
-#include <core/coro/task.hpp>
+#include <core/async/task.hpp>
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)
 

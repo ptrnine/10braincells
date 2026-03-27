@@ -8,7 +8,7 @@
 #include <sys/pipe.hpp>
 #include <sys/waitid.hpp>
 
-#include <core/async/waitid.hpp>
+#include <core/async/sys/waitid.hpp>
 #include <core/epoller.hpp>
 #include <core/io/file.hpp>
 #include <core/io/in.hpp>

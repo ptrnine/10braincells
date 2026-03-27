@@ -3,7 +3,7 @@
 #include <coroutine>
 
 #include <core/async/cancelation_point.hpp>
-#include <core/coro/coro_handle_metainfo.hpp>
+#include <core/async/coro_handle_metainfo.hpp>
 #include <core/opt.hpp>
 
 namespace core {

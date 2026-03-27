@@ -14,8 +14,8 @@
 #include <core/io/basic_types.hpp>
 
 #ifndef DISABLE_ASYNC
-#include <core/async/close.hpp>
-#include <core/async/open.hpp>
+#include <core/async/sys/close.hpp>
+#include <core/async/sys/open.hpp>
 #endif
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)

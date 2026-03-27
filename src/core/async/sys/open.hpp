@@ -1,7 +1,7 @@
 #pragma once
 
+#include <core/async/task.hpp>
 #include <core/concepts/string.hpp>
-#include <core/coro/task.hpp>
 #include <core/io/uring/ctx.hpp>
 
 #include <sys/open_flags.hpp>

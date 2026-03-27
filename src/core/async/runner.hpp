@@ -3,10 +3,10 @@
 #include <exception>
 #include <future>
 
-#include <core/async/cancel.hpp>
-#include <core/async/inotify_ctx.hpp>
-#include <core/coro/task.hpp>
-#include <core/coro/wait_all.hpp>
+#include <core/async/sys/cancel.hpp>
+#include <core/async/sys/inotify_ctx.hpp>
+#include <core/async/task.hpp>
+#include <core/async/wait_all.hpp>
 #include <core/finalizer.hpp>
 #include <core/io/uring/ctx.hpp>
 

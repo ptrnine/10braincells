@@ -2,8 +2,8 @@
 
 #include <future>
 
-#include <core/coro/async_generator.hpp>
-#include <core/coro/task.hpp>
+#include <core/async/async_generator.hpp>
+#include <core/async/task.hpp>
 #include <core/io/uring/ctx.hpp>
 
 #include <sys/eventfd.hpp>

@@ -8,10 +8,10 @@
 #include <sys/open_flags.hpp>
 #include <sys/poll.hpp>
 
+#include <core/async/awaitable.hpp>
 #include <core/async/awaitable_type.hpp>
 #include <core/async/cancelation_point.hpp>
-#include <core/coro/awaitable.hpp>
-#include <core/coro/coro_handle_metainfo.hpp>
+#include <core/async/coro_handle_metainfo.hpp>
 #include <core/errc_exception.hpp>
 #include <core/io/uring/structs.hpp>
 #include <core/moveonly_trivial.hpp>

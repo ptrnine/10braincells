@@ -1,8 +1,8 @@
 #pragma once
 
+#include <core/async/task.hpp>
 #include <core/concepts/trivial.hpp>
 #include <core/concepts/trivial_span_like.hpp>
-#include <core/coro/task.hpp>
 #include <core/io/uring/ctx.hpp>
 
 #include <sys/syscall.hpp>

@@ -14,8 +14,8 @@
 #include <sys/write.hpp>
 
 #ifndef DISABLE_ASYNC
-#include <core/async/read.hpp>
-#include <core/async/write.hpp>
+#include <core/async/sys/read.hpp>
+#include <core/async/sys/write.hpp>
 #endif
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__)>(__VA_ARGS__)

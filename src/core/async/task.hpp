@@ -5,8 +5,8 @@
 #include <list>
 
 #include <core/async/cancelation_point.hpp>
+#include <core/async/coro_handle_metainfo.hpp>
 #include <core/basic_types.hpp>
-#include <core/coro/coro_handle_metainfo.hpp>
 #include <core/function.hpp>
 #include <core/opt.hpp>
 #include <core/traits/is_same.hpp>

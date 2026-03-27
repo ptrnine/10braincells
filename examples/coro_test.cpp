@@ -1,13 +1,13 @@
 #define CORO_METAINFO
 
 #include <core/async/main.hpp>
-#include <core/async/sleep.hpp>
-#include <core/async/waitid.hpp>
-#include <core/async/readdir.hpp>
-#include <core/async/statx.hpp>
-#include <core/async/cancel.hpp>
-#include <core/async/inotify_watch.hpp>
-//#include <core/coro/read.hpp>
+#include <core/async/sys/cancel.hpp>
+#include <core/async/sys/inotify_watch.hpp>
+#include <core/async/sys/readdir.hpp>
+#include <core/async/sys/sleep.hpp>
+#include <core/async/sys/statx.hpp>
+#include <core/async/sys/waitid.hpp>
+// #include <core/coro/read.hpp>
 
 #include <core/exec.hpp>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <core/coro/task.hpp>
+#include <core/async/task.hpp>
 #include <core/io/uring/ctx.hpp>
 
 #include <sys/statx_types.hpp>
