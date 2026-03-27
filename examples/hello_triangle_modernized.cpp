@@ -131,7 +131,7 @@ vk::physical_device_t find_suitable_physical_device(const vk::instance_t& instan
 
 class hello_triangle {
 public:
-    util::logger& log = util::glog();
+    util::logger& log = glog();
 
     hello_triangle() {
         glfwInit();

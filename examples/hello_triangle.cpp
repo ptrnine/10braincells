@@ -122,7 +122,7 @@ vk::physical_device_t find_suitable_physical_device(const vk::instance_t& instan
 }
 
 int main() {
-    auto& log = util::glog();
+    auto& log = glog();
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

@@ -1,4 +1,6 @@
+#include <core/fixed_vector.hpp>
 #include <core/io/file.hpp>
+#include <core/io/out.hpp>
 #include <core/poller.hpp>
 #include <net/full_addr.hpp>
 #include <net/udp_socket.hpp>
@@ -6,7 +8,6 @@
 #include <sys/open_flags.hpp>
 #include <sys/read.hpp>
 #include <util/arg_parse.hpp>
-#include <core/fixed_vector.hpp>
 
 #include <util/log.hpp>
 

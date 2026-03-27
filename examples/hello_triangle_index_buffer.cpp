@@ -148,7 +148,7 @@ struct vertex {
 
 class hello_triangle {
 public:
-    util::logger& log = util::glog();
+    util::logger& log = glog();
 
     std::vector<vertex> vertices = {
         {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},

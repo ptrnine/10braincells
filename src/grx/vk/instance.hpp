@@ -51,7 +51,7 @@ struct instance_manager {
             if (id != no_id) {
                 auto result = id;
                 id = no_id;
-                util::glog().debug("Create new vulkan instance with id={}", result);
+                glog().debug("Create new vulkan instance with id={}", result);
                 return result;
             }
         }
@@ -63,7 +63,7 @@ struct instance_manager {
 
         for (auto& id : ids) {
             if (id == no_id) {
-                util::glog().debug("Free vulkan instance with id={}", free_id);
+                glog().debug("Free vulkan instance with id={}", free_id);
                 for (auto& f : destroy_handlers[free_id])
                     f();
                 destroy_handlers[free_id].clear();
@@ -348,7 +348,7 @@ private:
                                    const char* p_layer_prefix,
                                    const char* p_message,
                                    void* /*user_data*/) {
-        details::logger_callback(util::glog(), flags, object_type, object, p_layer_prefix, p_message);
+        details::logger_callback(glog(), flags, object_type, object, p_layer_prefix, p_message);
         return true;
     }
 
@@ -356,7 +356,7 @@ private:
                                          debug_utils_message_type_ext_flags             type,
                                          const debug_utils_messenger_callback_data_ext* data,
                                          void* /*user_data*/) {
-        details::debug_utils_callback(util::glog(), severity, type, data);
+        details::debug_utils_callback(glog(), severity, type, data);
         return true;
     }
 
@@ -383,14 +383,14 @@ private:
 void instance_logger::log(util::log_level level, std::string_view format, auto&&... args) {
     auto cur_level = details::severity_to_level(instance->log_severity());
     if (cur_level <= level) {
-        util::glog().log(level, format, fwd(args)...);
+        glog().log(level, format, fwd(args)...);
     }
 }
 
 void instance_logger::log_update(util::log_level level, u16 update_id, std::string_view format, auto&&... args) {
     auto cur_level = details::severity_to_level(instance->log_severity());
     if (cur_level <= level) {
-        util::glog().log_update(level, update_id, format, fwd(args)...);
+        glog().log_update(level, update_id, format, fwd(args)...);
     }
 }
 
@@ -406,14 +406,14 @@ namespace details {
             return;
         }
 
-        util::glog().debug("Vulkan functions loaded in {}", __PRETTY_FUNCTION__);
+        glog().debug("Vulkan functions loaded in {}", __PRETTY_FUNCTION__);
         f.foreach ([&](auto& f) {
             if constexpr (!core::is_same<core::decay<decltype(f)>, core::null_t>)
                 inst.load_functions_cached(f);
         });
 
         details::instance_manager::manager().add_destroy_handler(inst.id(), [&] {
-            util::glog().debug("Vulkan functions cleared in {}", __PRETTY_FUNCTION__);
+            glog().debug("Vulkan functions cleared in {}", __PRETTY_FUNCTION__);
             f.foreach ([](auto&& func) {
                 if constexpr (!core::is_same<core::decay<decltype(func)>, core::null_t>)
                     func.call = nullptr;
