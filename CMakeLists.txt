@@ -123,13 +123,6 @@ endforeach()
 include(cmake/codegen.cmake)
 add_subdirectory(codegen)
 
-# Run codegen required by self::src
-codegen(as_tuple_target
-    PROGRAM cg_as_tuple
-    ARGS "max_fields=16" "out=${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
-    OUTPUT "${CMAKE_BINARY_DIR}/src/core/as_tuple.cg.hpp"
-)
-
 add_subdirectory(src)
 
 if(ENABLE_TESTS)
