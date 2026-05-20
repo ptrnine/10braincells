@@ -61,7 +61,7 @@ inline std::vector<function_type> parse_commands(const pugi::xml_node& registry)
         if (command_xml.attribute("alias"))
             continue;
 
-        if (auto api = command_xml.attribute("api"); api && api.value() != std::string("vulkan"))
+        if (!is_vulkan_api(command_xml))
             continue;
 
         function_type func;
@@ -89,7 +89,7 @@ inline std::vector<function_type> parse_commands(const pugi::xml_node& registry)
         func.native      = proto_name_xml.text().as_string();
 
         for (auto param : command_xml.children("param")) {
-            if (auto api = param.attribute("api"); !api || api.value() == std::string_view("vulkan")) {
+            if (is_vulkan_api(param)) {
                 func.args.push_back(parse_arg(param));
             }
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/concepts/string.hpp>
 #include <regex>
 #include <string>
 #include <util/log.hpp>
@@ -28,47 +29,86 @@ struct typedef_gen {
     bool        struct_typedef = false;
 };
 
+std::optional<std::string> parse_funcpointer_old(const pugi::xml_node& node) {
+    std::string str;
+
+    for (const auto& child : node.children()) {
+        std::string_view node_type = child.name();
+        /* 'proto' and 'param' should not appear in old style */
+        if (node_type == "proto" || node_type == "param") {
+            return {};
+        } else if (node_type == "type") {
+            std::string lines = child.text().as_string();
+            for (auto text : lines | core::views::split('\n')) {
+                str += ' ';
+                auto type = transform_type(std::string(text));
+                if (type == "debug_utils_messenger_callback_data_ext" || type == "fault_data" || type == "device_memory_report_callback_data_ext")
+                    type = "struct " + type;
+                str += type;
+                str += ' ';
+            }
+        } else {
+            std::string lines = child.text().as_string();
+            for (auto text : lines | core::views::split('\n')) {
+                str += (text | core::trim(' ')).as_string();
+            }
+        }
+    }
+
+    return str;
+}
+
+std::string parse_type_of_param_or_proto(const pugi::xml_node& xml) {
+    std::string str;
+    for (const auto& child : xml.children()) {
+        std::string_view type = child.name();
+        if (type == "name") {
+            continue;
+        } else if (type == "type") {
+            auto t = transform_type(child.text().as_string());
+            if (t == "debug_utils_messenger_callback_data_ext" || t == "fault_data" || t == "device_memory_report_callback_data_ext")
+                t = "struct " + t;
+            str += t;
+        } else {
+            str += std::string(std::string(child.text().as_string()) | core::trim(' ')) + ' ';
+        }
+    }
+
+    if (str.ends_with(' ')) {
+        str.pop_back();
+    }
+    return str;
+}
+
 auto parse_function_types(const pugi::xml_node& registry) {
     std::vector<typedef_gen> res;
 
-    for (auto t : registry.child("types").children()) {
-        std::string_view category = t.attribute("category").value();
-        if (category == "funcpointer") {
-            std::string str;
-            for (auto child : t.children()) {
-                std::string lines = child.text().as_string();
-                std::string_view node_type = child.name();
-                for (auto text : lines | core::views::split('\n')) {
-                    if (node_type == "type") {
-                        str += ' ';
-                        auto type = transform_type(std::string(text));
-                        if (type == "debug_utils_messenger_callback_data_ext" || type == "fault_data" ||
-                            type == "device_memory_report_callback_data_ext")
-                            type = "struct " + type;
-                        str += type;
-                        str += ' ';
-                    }
-                    else
-                        str += (text | core::trim(' ')).as_string();
-                }
-            }
-
-            static std::regex func_rxp{R"(typedef (.*?) \(VKAPI_PTR \*PFN_(.*?)\)\((.*?)\);)"};
-            std::smatch matches;
-            if (std::regex_match(str, matches, func_rxp)) {
+    for (auto node : registry.child("types").children()) {
+        std::string_view category = node.attribute("category").value();
+        if (category != "funcpointer") {
+            continue;
+        }
+        /* Try parse with weird old style */
+        if (auto str = parse_funcpointer_old(node)) {
+            static std::regex func_rxp1{R"(typedef (.*?) \(VKAPI_PTR \*PFN_(.*?)\)\((.*?)\);)"};
+            std::smatch       matches;
+            std::string       params;
+            typedef_gen       t;
+            if (std::regex_match(*str, matches, func_rxp1)) {
                 typedef_gen t;
                 t.struct_typedef = false;
-                t.key = to_snake_case(matches[2].str());
+                t.key            = to_snake_case(matches[2].str());
                 drop_prefix(t.key, "vk_");
 
                 if (t.key == "debug_report_callback_ext")
                     drop_postfix(t.key, "_ext");
 
                 auto return_type = transform_type(matches[1].str());
-                t.value = return_type + "(*)(";
+                t.value          = return_type + "(*)(";
 
-                auto params = matches[3].str();
-
+                params = matches[3].str();
+            }
+            if (!params.empty()) {
                 for (auto param_r : params | core::views::split(',')) {
                     auto param = param_r.as_string();
                     if (param == "void")
@@ -89,6 +129,29 @@ auto parse_function_types(const pugi::xml_node& registry) {
 
                 res.push_back(t);
             }
+        } else {
+            auto        proto = node.child("proto");
+            typedef_gen t     = {
+                    .key            = to_snake_case(proto.child("name").text().as_string()),
+                    .value          = parse_type_of_param_or_proto(proto) + "(*)(",
+                    .struct_typedef = false,
+            };
+            drop_prefix(t.key, "pfn_vk_");
+            if (t.key == "debug_report_callback_ext")
+                drop_postfix(t.key, "_ext");
+
+            for (const auto& param : node.children("param")) {
+                t.value += parse_type_of_param_or_proto(param) + ' ';
+                t.value += to_snake_case(param.child("name").text().as_string()) + ", ";
+            }
+
+            if (t.value.ends_with(", "))
+                t.value.resize(t.value.size() - 2);
+            t.value += ')';
+
+            res.push_back(t);
+
+            std::cerr << t.key << " = " << t.value << std::endl;
         }
     }
 
@@ -179,8 +242,9 @@ void generate_types_header(const pugi::xml_node& registry, auto&& out) {
 void generate_function_types_header(const pugi::xml_node& registry, auto&& out) {
     out.write("#pragma once\n"
               "\n"
-              "#include <grx/vk/types.cg.hpp>\n"
+              "#include <grx/vk/flags.cg.hpp>\n"
               "#include <grx/vk/enums.cg.hpp>\n"
+              "#include <grx/vk/types.cg.hpp>\n"
               "\n"
               "namespace vk\n"
               "{\n");

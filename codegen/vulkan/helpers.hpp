@@ -103,6 +103,20 @@ inline std::string drop_vk_pref_suff(std::string value) {
     return value;
 }
 
+inline bool is_vulkan_api(const pugi::xml_node& node) {
+    auto api = node.attribute("api");
+    if (!api) {
+        return true;
+    }
+
+    for (auto v : std::string_view(api.value()) | core::views::split(',')) {
+        if (v.as_string() == "vulkan") {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline field_gen parse_field(const pugi::xml_node& xml_field) {
     field_gen field;
 

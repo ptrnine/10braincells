@@ -32,9 +32,9 @@ inline auto parse_structs(const pugi::xml_node&        registry,
             std::set<std::string> same_type_and_name;
             for (auto member : t.children("member")) {
                 /* Skip api="vulkan" */
-                if (auto api = member.attribute("api"))
-                    if (std::string_view(api.value()) != "vulkan")
-                        continue;
+                if (!is_vulkan_api(member)) {
+                    continue;
+                }
 
                 auto field = parse_field(member);
 
