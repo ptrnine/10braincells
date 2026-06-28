@@ -100,7 +100,7 @@ inline std::vector<function_type> parse_commands(const pugi::xml_node& registry)
 
     /* Parse extension ifdefs */
     for (auto extension : registry.child("extensions").children("extension")) {
-        auto ifdef = std::string("defined(") + extension.attribute("name").value() + ")";
+        auto ifdef = std::string("defined(") + extension.attribute("name").value() + ") || " + vk_other_defines(extension.attribute("name").value());
         for (auto require : extension.children("require")) {
             for (auto command : require.children("command")) {
                 std::string name = command.attribute("name").value();

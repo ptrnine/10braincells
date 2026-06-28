@@ -150,8 +150,6 @@ auto parse_function_types(const pugi::xml_node& registry) {
             t.value += ')';
 
             res.push_back(t);
-
-            std::cerr << t.key << " = " << t.value << std::endl;
         }
     }
 

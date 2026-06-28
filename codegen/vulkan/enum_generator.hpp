@@ -94,9 +94,9 @@ parse_flag_record(const pugi::xml_node& xml_record, const std::string& record_pr
 
     if (auto protect = xml_record.attribute("protect")) {
         if (record.ifdef.empty())
-            record.ifdef = std::string("defined(") + protect.value() + ")";
+            record.ifdef = std::string("defined(") + protect.value() + ") || " + vk_other_defines(protect.value());
         else
-            record.ifdef += std::string(" && defined(") + protect.value() + ")";
+            record.ifdef += std::string(" && (defined(") + protect.value() + ") || " + vk_other_defines(protect.value()) + ")";
     }
 
     return record;
@@ -172,7 +172,7 @@ auto parse_flags(const pugi::xml_node& registry) {
 
     /* Parse flags from extensions */
     for (auto extension : registry.child("extensions").children("extension")) {
-        auto ifdef = std::string("defined(") + extension.attribute("name").value() + ")";
+        auto ifdef = std::string("(defined(") + extension.attribute("name").value() + ") || " + vk_other_defines(extension.attribute("name").value()) + ")";
         for (auto require : extension.children("require"))
             parse_from_require(require, ifdef);
     }
@@ -272,9 +272,9 @@ inline enum_class_value parse_enum_record(const pugi::xml_node& xml_record,
 
     if (auto protect = xml_record.attribute("protect")) {
         if (record.ifdef.empty())
-            record.ifdef = std::string("defined(") + protect.value() + ")";
+            record.ifdef = std::string("defined(") + protect.value() + ") || " + vk_other_defines(protect.value());
         else
-            record.ifdef += std::string(" && defined(") + protect.value() + ")";
+            record.ifdef += std::string(" && (defined(") + protect.value() + ") || " + vk_other_defines(protect.value()) + ")";
     }
 
     return record;
@@ -336,7 +336,7 @@ auto parse_enums(const pugi::xml_node& registry) {
 
     /* Parse enums from extensions */
     for (auto extension : registry.child("extensions").children("extension")) {
-        auto ifdef = std::string("defined(") + extension.attribute("name").value() + ")";
+        auto ifdef = std::string("(defined(") + extension.attribute("name").value() + ") || " + vk_other_defines(extension.attribute("name").value()) + ")";
         core::opt<int> ext_number;
         if (auto number = extension.attribute("number"))
             ext_number = number.as_int();

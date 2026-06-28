@@ -187,7 +187,7 @@ void generate_swapchain_header(const pugi::xml_node& registry, cg::vk::external_
     c.func_postfixes = {"_khr", "_ext"};
     c.copyable       = false;
     c.definitions.push_back(
-        "#if defined(VK_KHR_swapchain)\n"
+        "#if defined(VK_KHR_swapchain) || defined(VK_DEFINE_ALL)\n"
         "    auto acquire_next_image(vk::semaphore semaphore, vk::fence fence = core::null, std::chrono::nanoseconds timeout = "
         "std::chrono::nanoseconds::max()) const {\n"
         "        auto func = f[cmd::acquire_next_image_khr];\n"
@@ -195,7 +195,7 @@ void generate_swapchain_header(const pugi::xml_node& registry, cg::vk::external_
         "        res.rc = func.call(dev->handle(), sc, core::u64(timeout.count()), semaphore, fence, &res.value_unsafe);\n"
         "        return res;\n"
         "    }\n"
-        "#endif /* defined(VK_KHR_swapchain) */\n"
+        "#endif /* defined(VK_KHR_swapchain) || defined(VK_DEFINE_ALL)*/\n"
         "\n"
     );
 

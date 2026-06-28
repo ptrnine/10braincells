@@ -17,6 +17,15 @@ inline void trim_space(std::string& str) {
         str.resize(str.size() - 1);
 }
 
+inline std::string vk_other_defines(const std::string& define) {
+    if (define.contains("_win32")) {
+        return "(defined(VK_DEFINE_ALL) && defined(_WIN32))";
+    } else if (define.contains("_FUCHSIA")) {
+        return "(defined(VK_DEFINE_ALL) && defined(__Fuchsia__))";
+    }
+    return "defined(VK_DEFINE_ALL)";
+}
+
 inline std::string transform_type(const std::string& type, bool use_namespace = false) {
     static std::map<std::string, std::string> type_map = {
         {"VkBool32", "bool32_t"},
