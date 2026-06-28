@@ -371,6 +371,9 @@ public:
     template <typename U> requires (!convertible_to<U, T>) && ctor<T, U> && (!optional<remove_const_ref<U>>)
     explicit constexpr opt(U&& val): base(init, fwd(val)) {}
 
+    constexpr opt(const T& val): base(init, val) {}
+    constexpr opt(T&& val): base(init, mov(val)) {}
+
     constexpr opt& operator=(const opt&) requires copy_assign<T> = default;
     constexpr opt& operator=(opt&&) noexcept requires move_assign<T> = default;
     constexpr opt& operator=(null_t) noexcept {
@@ -384,6 +387,23 @@ public:
 
     template <typename U> requires ctor<T, U> && (!optional<remove_const_ref<U>>)
     constexpr opt& operator=(U&& val) {
+        if (has_value())
+            this->get() = fwd(val);
+        else
+            this->init(fwd(val));
+        return* this;
+    }
+
+    constexpr opt& operator=(const T& val) {
+        if (has_value())
+            this->get() = val;
+        else
+            this->init(val);
+        return* this;
+    }
+
+
+    constexpr opt& operator=(T&& val) {
         if (has_value())
             this->get() = fwd(val);
         else

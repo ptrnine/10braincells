@@ -90,8 +90,6 @@ struct inotify_watch_flags {
             core::tuple{inotify_watch_flag::unmount, std::string_view("unmount")},
             core::tuple{inotify_watch_flag::q_overflow, std::string_view("q_overflow")},
             core::tuple{inotify_watch_flag::ignored, std::string_view("ignored")},
-            core::tuple{inotify_watch_flag::close, std::string_view("close")},
-            core::tuple{inotify_watch_flag::move, std::string_view("move")},
             core::tuple{inotify_watch_flag::onlydir, std::string_view("onlydir")},
             core::tuple{inotify_watch_flag::dont_follow, std::string_view("dont_follow")},
             core::tuple{inotify_watch_flag::excl_unlink, std::string_view("excl_unlink")},
@@ -99,7 +97,6 @@ struct inotify_watch_flags {
             core::tuple{inotify_watch_flag::mask_add, std::string_view("mask_add")},
             core::tuple{inotify_watch_flag::isdir, std::string_view("isdir")},
             core::tuple{inotify_watch_flag::oneshot, std::string_view("oneshot")},
-            core::tuple{inotify_watch_flag::all_events, std::string_view("all_events")},
         };
         std::string res;
         for (auto&& [f, s] : flags) {

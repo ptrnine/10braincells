@@ -49,6 +49,9 @@ TEST_CASE("opt") {
 
         opt c = 2;
         static_assert(core::is_same<decltype(c), opt<int>>);
+
+        [[maybe_unused]] opt<opt<int>> d = opt<int>{2};
+        d = opt<int>{2};
     }
 
     SECTION("null") {

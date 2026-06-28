@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/log.hpp"
 #include <core/concepts/string.hpp>
 
 #include <sys/inotify_flags.hpp>
@@ -9,7 +10,7 @@
 namespace sys {
 struct inotify_event {
     std::string_view name() const {
-        return {_name, len};
+        return {_name};
     }
 
     size_t size() const {

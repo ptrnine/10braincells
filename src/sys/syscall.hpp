@@ -24,7 +24,8 @@ namespace details
 {
     template <typename D, typename T>
     struct syscall_result_impl {
-        constexpr syscall_result_impl(auto&&... args): _r(fwd(args)...) {}
+        constexpr syscall_result_impl(): _r{type<errc>} {}
+        constexpr syscall_result_impl(auto&& arg, auto&&... args): _r(fwd(arg), fwd(args)...) {}
 
         static constexpr D make_error(errc err) {
             return {err};

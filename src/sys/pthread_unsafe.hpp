@@ -50,7 +50,7 @@ struct __attribute((aligned(32))) pthread_descr {
     std::atomic_uint cancelhandling;
 };
 
-pthread_descr& get_pthread() {
+inline pthread_descr& get_pthread() {
     pthread_descr* pt_self;
     asm("mov %%fs:%c1,%0" : "=r"(pt_self) : "i"(offsetof(pthread_descr, header.self)));
     return *pt_self;
@@ -68,7 +68,7 @@ namespace canceling_bits
     };
 }
 
-uint enable_async_cancel() {
+inline uint enable_async_cancel() {
     using namespace canceling_bits;
 
     auto& t      = get_pthread();
@@ -90,7 +90,7 @@ uint enable_async_cancel() {
     return old;
 }
 
-void disable_async_cancel(uint old) {
+inline void disable_async_cancel(uint old) {
     using namespace canceling_bits;
 
     if (old & async)

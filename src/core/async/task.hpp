@@ -235,6 +235,10 @@ struct [[nodiscard]] task {
         }
     }
 
+    bool empty() const {
+        return !_handle;
+    }
+
     task<sys::syscall_result<void>> cancel();
 
     std::coroutine_handle<promise_type> _handle;

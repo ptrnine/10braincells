@@ -16,6 +16,7 @@ add_executable(tests-core
     args.cpp
     loophole.cpp
     byteconv.cpp
+    string.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
