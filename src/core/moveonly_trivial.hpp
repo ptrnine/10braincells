@@ -29,6 +29,10 @@ public:
         return val;
     }
 
+    constexpr bool is_default() const {
+        return val == DefaultValue;
+    }
+
     constexpr bool not_default() const {
         return val != DefaultValue;
     }

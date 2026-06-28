@@ -359,6 +359,19 @@ inline exec_result exec(std::vector<std::string> args, std::vector<std::string> 
         .std_err = mov(serr),
     };
 }
+
+namespace async {
+    inline task<exec_result> exec(std::vector<std::string> args, std::vector<std::string> env = {}) {
+        std::string sout, serr;
+        process     proc{arg::args = mov(args), arg::env = mov(env), arg::std_out = sout, arg::std_err = serr};
+        auto        code = co_await proc.run_async();
+        co_return exec_result{
+            .code    = code,
+            .std_out = mov(sout),
+            .std_err = mov(serr),
+        };
+    }
+} // namespace async
 } // namespace core
 
 #undef fwd

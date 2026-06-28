@@ -7,6 +7,7 @@
 #include <core/async/sys/sleep.hpp>
 #include <core/async/sys/statx.hpp>
 #include <core/async/sys/waitid.hpp>
+#include <core/async/concurrent.hpp>
 // #include <core/coro/read.hpp>
 
 #include <core/exec.hpp>
@@ -90,6 +91,17 @@ task<void> destroy_after_10s(async::inotify_watch& watch) {
     watch = {};
 }
 
+task<void> test_concurrent() {
+    async::concurrent<exec_result, 2> conc{
+        async::exec({"/bin/bash", "-c", "sleep 2 && echo second"}),
+        async::exec({"/bin/bash", "-c", "sleep 1 && echo first"}),
+    };
+
+    while (auto result = co_await conc.async_select()) {
+        glog().detail("concurrent: {} {}", result->std_out, result->std_err);
+    }
+}
+
 task<void> test_async() {
     std::vector<task<>> tasks;
 
@@ -106,6 +118,7 @@ task<void> test_async() {
         tasks.push_back(proc());
         tasks.push_back(proc2());
         tasks.push_back(gen1());
+        tasks.push_back(test_concurrent());
     }
 
     for (auto& t : tasks)
