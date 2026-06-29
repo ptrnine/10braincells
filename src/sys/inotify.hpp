@@ -10,6 +10,9 @@
 namespace sys {
 struct inotify_event {
     std::string_view name() const {
+        if (len == 0) {
+            return {};
+        }
         return {_name};
     }
 

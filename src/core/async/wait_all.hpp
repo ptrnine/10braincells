@@ -31,10 +31,10 @@ namespace details {
 
 template <details::task_any... Ts>
 task<tuple<typename details::task_result_s<typename decay<Ts>::result_type>::type...>> wait_all(Ts&&... tasks) {
-    using result_type = tuple<typename details::task_result_s<typename decay<Ts>::result_type>::type...>;
-    result_type result;
+    using tmp_result_t = tuple<opt<typename details::task_result_s<typename decay<Ts>::result_type>::type>...>;
+    tmp_result_t tmp_result;
 
-    static constexpr auto _wait_one = []<size_t idx, typename T>(aggregate_exception& e, int_const<idx>, result_type& result, T&& task) -> core::task<void> {
+    static constexpr auto _wait_one = []<size_t idx, typename T>(aggregate_exception& e, int_const<idx>, tmp_result_t& result, T&& task) -> core::task<void> {
         try {
             if constexpr (is_same<typename decay<T>::result_type, void>) {
                 co_await fwd(task);
@@ -46,16 +46,16 @@ task<tuple<typename details::task_result_s<typename decay<Ts>::result_type>::typ
         }
     };
 
-    static constexpr auto _wait_all = []<size_t... ids>(aggregate_exception& e, result_type& result, idx_seq<ids...>, auto&&... tasks) -> core::task<void> {
+    static constexpr auto _wait_all = []<size_t... ids>(aggregate_exception& e, tmp_result_t& result, idx_seq<ids...>, auto&&... tasks) -> core::task<void> {
         (co_await _wait_one(e, int_c<ids>, result, fwd(tasks)), ...);
         co_return;
     };
 
     aggregate_exception e;
-    co_await _wait_all(e, result, make_idx_seq<sizeof...(Ts)>(), fwd(tasks)...);
+    co_await _wait_all(e, tmp_result, make_idx_seq<sizeof...(Ts)>(), fwd(tasks)...);
     throw_aggregate_exception(e);
 
-    co_return result;
+    co_return tmp_result.map([](auto&& value) { return *value; });
 }
 } // namespace core::async
 

@@ -842,6 +842,12 @@ struct var : dtls::var_impl<Ts...> {
         return !operator==(value);
     }
 
+    constexpr operator bool()
+        requires details::first_is_null<Ts...>::value
+    {
+        return this->index() != 0;
+    }
+
 #if 0
     constexpr decltype(auto) visit(auto&&... functions) const& {
         return idx_dispatch<sizeof...(Ts)>(var_base::index(), [this, o = overloaded{fwd(functions)...}](auto i) {

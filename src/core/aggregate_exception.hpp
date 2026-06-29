@@ -53,7 +53,7 @@ void throw_aggregate_exception(const aggregate_exception& exception) {
     }
 
     if (exception.size() == 1) {
-        throw exception[0];
+        std::rethrow_exception(exception[0]);
     }
 
     throw exception;

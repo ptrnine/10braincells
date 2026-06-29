@@ -2,39 +2,45 @@
 
 #include <queue>
 
-#include <core/async/task.hpp>
+#include <core/async/ignore_result.hpp>
+#include <util/log.hpp>
 
 namespace core::async {
 
 namespace details {
     template <typename Select, typename T>
-    struct conc_task_state_base {
-        Select*            selector = nullptr;
-        task<T>            _task;
-        task<void>         background;
-        std::exception_ptr exception = nullptr;
-    };
+    struct conc_task_state {
+        conc_task_state(Select* iselect): selector(iselect) {};
+        conc_task_state(Select* iselect, task<T> task): selector(iselect), _task(core::mov(task)) {}
 
-    template <typename Select, typename T>
-    struct conc_task_state : conc_task_state_base<Select, T> {
-        conc_task_state(Select* selector, task<T> task): conc_task_state_base<Select, T>{selector, core::move(task)} {}
-        opt<T> result;
-    };
-
-    template <typename Select>
-    struct conc_task_state<Select, void> : public conc_task_state_base<Select, void> {
-        conc_task_state(Select* selector, task<void> task): conc_task_state_base<Select, void>{selector, core::move(task)} {}
-        bool returned = false; // ???
+        Select*          selector   = nullptr;
+        ignore_result<T> _task      = {};
+        task<void>       background = {};
+        bool             returned   = false;
     };
 } // namespace details
 
-template <typename ReturnT, size_t TaskCount>
+class concurrent_buff_is_full : public std::exception {
+public:
+    concurrent_buff_is_full() = default;
+
+    const char* what() const noexcept override {
+        return "concurrent: cannot push new task - buffer is full";
+    }
+};
+
+template <typename ReturnT, size_t MaxTasks>
 class concurrent {
 public:
-    explicit concurrent(auto... tasks): remaining_(sizeof...(tasks)) {
+    explicit concurrent(auto... tasks)
+        requires(sizeof...(tasks) <= MaxTasks)
+        : remaining_(sizeof...(tasks)) {
         (states.emplace_back(this, core::mov(tasks)), ...);
+        for (size_t i = sizeof...(tasks); i < MaxTasks; ++i) {
+            states.emplace_back(this);
+        }
 
-        for (size_t i = 0; i < background_tasks.size(); ++i) {
+        for (size_t i = 0; i < remaining_; ++i) {
             background_tasks[i] = run_background(i);
         }
     }
@@ -51,72 +57,56 @@ public:
 
         void await_suspend(std::coroutine_handle<> caller) noexcept {
             selector_->awaiting_handle_ = caller;
-            //if (!selector_->ready_indices_.empty()) {
-            //    selector_->awaiting_handle_ = nullptr;
-            //    caller.resume();
-            //}
         }
 
-        template <typename U = ReturnT>
-        auto await_resume() {
+        opt<size_t> await_resume() {
             if (selector_->remaining_ == 0) {
-                if constexpr (is_same<void, U>)
-                    return false;
-                else
-                    return opt<U>{};
+                return {};
             }
 
             size_t idx = selector_->ready_indices_.front();
             selector_->ready_indices_.pop();
-            auto& state  = selector_->states[idx];
             --selector_->remaining_;
-
-            if (state.exception) {
-                std::rethrow_exception(state.exception);
-            }
-
-            if constexpr (!is_same<void, U>) {
-                return mov(state.result);
-            } else {
-                return state.returned;
-            }
+            return idx;
         }
 
     private:
         concurrent* selector_;
     };
 
-    template <typename U = ReturnT> requires (!is_same<void, U>)
-    task<opt<ReturnT>> async_select() {
-        auto result = co_await awaiter{*this};
-        if (remaining_ == 0) {
-            for (auto& t : background_tasks) {
-                if (!t.empty()) {
-                    co_await t;
-                    t = {};
-                }
-            }
+    task<opt<task<ReturnT>>> select() {
+        auto ready_idx = co_await awaiter{*this};
+        if (!ready_idx) {
+            co_return {};
         }
-        co_return result;
+
+        co_await background_tasks[*ready_idx];
+        background_tasks[*ready_idx] = {};
+
+        auto& state = states[*ready_idx];
+        co_return core::mov(state._task.task);
     }
 
-    template <typename U = ReturnT> requires (is_same<void, U>)
-    task<bool> async_select() {
-        auto result = co_await awaiter{*this};
-        if (remaining_ == 0) {
-            for (auto& t : background_tasks) {
-                if (!t.empty()) {
-                    co_await t;
-                    t = {};
-                }
+    void push(auto&& task) {
+        if (remaining_ >= MaxTasks) {
+            throw concurrent_buff_is_full{};
+        }
+
+        for (size_t i = 0; i < background_tasks.size(); ++i) {
+            if (background_tasks[i].empty()) {
+                ++remaining_;
+                states[i]           = details::conc_task_state<concurrent, ReturnT>(this, core::mov(task));
+                background_tasks[i] = run_background(i);
+                return;
             }
         }
-        co_return result;
+
+        throw concurrent_buff_is_full{};
     }
 
 private:
     std::deque<details::conc_task_state<concurrent, ReturnT>> states;
-    array<task<void>, TaskCount>                              background_tasks;
+    array<task<void>, MaxTasks>                            background_tasks;
     std::queue<size_t>                                        ready_indices_;
     std::coroutine_handle<>                                   awaiting_handle_ = nullptr;
     size_t                                                    remaining_;
@@ -124,16 +114,8 @@ private:
     template <typename U = ReturnT>
     task<void> run_background(size_t idx) {
         auto& state = states[idx];
-        try {
-            if constexpr (is_same<U, void>) {
-                co_await state._task;
-                state.returned = true;
-            } else {
-                state.result = co_await state._task;
-            }
-        } catch (...) {
-            state.exception = std::current_exception();
-        }
+        co_await state._task;
+        state.returned = true;
         notify(idx);
     }
 
