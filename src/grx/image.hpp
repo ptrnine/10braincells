@@ -439,7 +439,7 @@ namespace details {
                 case 3:
                     return STBI_rgb;
                 case 4:
-                    return STBI_grey_alpha;
+                    return STBI_rgb_alpha;
                 }
             }();
 
@@ -587,6 +587,8 @@ public:
     friend class details::image_span_stbi<T>;
     friend class details::image_stbi<T>;
 
+    image() = default;
+
     image(const vec2u& size, uint mipmaps_count = 0):
         _size(vec2<u32>{size}),
         _mipmaps_count(mipmaps_count),
@@ -684,6 +686,10 @@ public:
         return result;
     }
 
+    size_t size_in_bytes() const {
+        return _overal_len * sizeof(T);
+    }
+
 private:
     image(malloc_box<T[]>&& pixels, const vec2u& size, size_t mipmaps_count, size_t overal_len):
         _pixels(core::mov(pixels)),
@@ -691,9 +697,9 @@ private:
         _mipmaps_count(u32(mipmaps_count)),
         _overal_len(u32(overal_len)) {}
 
-    vec2<u32>       _size;
-    u32             _mipmaps_count;
-    u32             _overal_len;
+    vec2<u32>       _size          = {0, 0};
+    u32             _mipmaps_count = 0;
+    u32             _overal_len    = 0;
     malloc_box<T[]> _pixels;
 };
 
