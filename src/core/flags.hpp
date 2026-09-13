@@ -44,6 +44,14 @@ struct flags : UsingEnum {
         return value & f.value;
     }
 
+    constexpr bool have_one_of(flags f) const {
+        return value & f.value;
+    }
+
+    constexpr bool have_all(flags f) const {
+        return (value & f.value) == f.value;
+    }
+
     T value;
 };
 } // namespace core

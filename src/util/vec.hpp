@@ -14,6 +14,7 @@
 #include <core/floating_point.hpp>
 
 #include "basic_types.hpp"
+#include "core/compact_hashes.hpp"
 #include "vec_macro_gen.hpp"
 
 namespace util
@@ -726,6 +727,13 @@ struct tuple_size<util::vec<T, S>> : std::integral_constant<size_t, S> {};
 
 template <size_t N, typename T, size_t S>
 struct tuple_element<N, util::vec<T, S>> : tuple_element<N, core::array<T, S>> {};
+
+template <typename T, size_t S>
+struct hash<util::vec<T, S>> {
+    size_t operator()(const util::vec<T, S>& v) const noexcept {
+        return (size_t)core::fnv1a64(v.v.data(), sizeof(T) * S);
+    }
+};
 } // namespace std
 
 #undef TBC_VEC_GEN_GET_2

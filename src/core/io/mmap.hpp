@@ -94,6 +94,11 @@ public:
         return (T*)_data.get();
     }
 
+    template <typename T = byte>
+    constexpr auto span() const {
+        return std::span{(T*)_data.get(), size() / sizeof(T)};
+    }
+
     constexpr size_t size() const {
         return _mmap_sz;
     }
