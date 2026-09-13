@@ -209,7 +209,7 @@ public:
         create_swapchain();
 
         namespace state   = vk::info::pipeline::state;
-        pipeline_layout   = dev.create_pipeline_layout(vk::info::pipeline_layout{});
+        pipeline_layout   = dev.create_pipeline_layout(vk::info::pipeline_layout{.set_layouts = {descriptor_set_layout}});
         graphics_pipeline = dev.create_graphics_pipeline(
             null,
             vk::info::graphics_pipeline{
@@ -557,6 +557,19 @@ private:
         throw std::runtime_error("failed to find suitable memory type!");
     }
 
+    void create_descriptor_set_layout() {
+        descriptor_set_layout = dev.create_descriptor_set_layout(
+            vk::info::descriptor_set_layout{
+                .bindings = {vk::descriptor_set_layout_binding{
+                    .binding          = 0,
+                    .descriptor_type  = vk::descriptor_type::uniform_buffer,
+                    .descriptor_count = 1,
+                    .stage_flags      = vk::shader_stage_flag::vertex,
+                }}
+            }
+        );
+    }
+
 private:
     GLFWwindow*                   wnd;
     vk::vk_lib                    lib;
@@ -574,6 +587,7 @@ private:
     std::vector<vk::image_view_t> image_views;
     vk::pipeline_layout_t         pipeline_layout;
     vk::pipeline_t                graphics_pipeline;
+    vk::descriptor_set_layout_t   descriptor_set_layout;
 
     buffer_result vertex_b;
     buffer_result index_b;
