@@ -18,6 +18,7 @@ if(BUILD_3RD)
     submodule_build(pugixml)
     submodule_build(assimp CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF -DASSIMP_BUILD_TESTS=OFF -DASSIMP_WARNINGS_AS_ERRORS=OFF)
     submodule_build(glfw CMAKE_ARGS -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_TESTS=OFF)
+    submodule_build(tinyobjloader)
 
     if(ENABLE_TESTS)
         submodule_build(Catch2 CMAKE_ARGS
