@@ -18,6 +18,7 @@
 #include "utility/move.hpp"
 #include "utility/overloaded.hpp"
 #include <core/null.hpp>
+#include <core/traits/decay.hpp>
 #include <core/traits/remove_cvref.hpp>
 
 #define fwd(x) static_cast<decltype(x)>(x)
@@ -672,7 +673,7 @@ struct var_mctor<D, Ts...> : D {
     constexpr var_mctor& operator=(const var_mctor&) = default;
     constexpr var_mctor(var_mctor&& r) noexcept((nothrow_move_ctor<Ts> && ...)): D() {
         idx_dispatch<sizeof...(Ts)>(r.index(), [&](auto i) {
-            using type = decltype(auto(r._get(i)));
+            using type = decay<decltype(r._get(i))>;
             this->_init(i, static_cast<type&&>(r._get(i)));
         });
     }
@@ -708,7 +709,7 @@ struct var_masgn<D, Ts...> : D {
     constexpr var_masgn(var_masgn&&)                 = default;
     constexpr var_masgn& operator=(var_masgn&& r) noexcept((nothrow_move_assign<Ts> && ...)) {
         idx_dispatch<sizeof...(Ts)>(r.index(), [&](auto i) {
-            using type = decltype(auto(r._get(i)));
+            using type = decay<decltype(r._get(i))>;
             this->_emplace(i, static_cast<type&&>(r._get(i)));
         });
         return *this;
