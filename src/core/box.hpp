@@ -73,8 +73,8 @@ public:
         ptr = new_ptr;
     }
 
-    T* release() {
-        T* result = ptr;
+    type* release() {
+        type* result = ptr;
         ptr = nullptr;
         return result;
     }
