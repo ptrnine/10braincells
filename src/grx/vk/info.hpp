@@ -639,4 +639,45 @@ struct rendering {
     }
 };
 #endif
+
+struct descriptor_set_layout {
+    descriptor_set_layout_create_flags flags = {};
+    std::vector<descriptor_set_layout_binding> bindings = {};
+
+    operator descriptor_set_layout_create_info() const {
+        return {
+            .flags         = flags,
+            .binding_count = u32(bindings.size()),
+            .bindings      = data_or_null(bindings),
+        };
+    }
+};
+
+struct descriptor_pool {
+    descriptor_pool_create_flags      flags = {};
+    u32                               max_sets;
+    std::vector<descriptor_pool_size> pool_sizes = {};
+
+    operator descriptor_pool_create_info() const {
+        return {
+            .flags           = flags,
+            .max_sets        = max_sets,
+            .pool_size_count = u32(pool_sizes.size()),
+            .pool_sizes      = data_or_null(pool_sizes),
+        };
+    }
+};
+
+struct descriptor_set {
+    vk::descriptor_pool                    descriptor_pool;
+    std::vector<vk::descriptor_set_layout> set_layouts;
+
+    operator descriptor_set_allocate_info() const {
+        return {
+            .descriptor_pool      = descriptor_pool,
+            .descriptor_set_count = u32(set_layouts.size()),
+            .set_layouts          = data_or_null(set_layouts),
+        };
+    }
+};
 } // namespace vk::info

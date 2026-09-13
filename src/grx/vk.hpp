@@ -5,11 +5,15 @@
 #include <grx/vk/buffer.cg.hpp>
 #include <grx/vk/command_buffer.hpp>
 #include <grx/vk/command_pool.cg.hpp>
+#include <grx/vk/descriptor_pool.cg.hpp>
+#include <grx/vk/descriptor_set.hpp>
+#include <grx/vk/descriptor_set_layout.cg.hpp>
 #include <grx/vk/device.cg.hpp>
 #include <grx/vk/device_memory.cg.hpp>
 #include <grx/vk/enums.cg.hpp>
 #include <grx/vk/fence.cg.hpp>
 #include <grx/vk/framebuffer.cg.hpp>
+#include <grx/vk/image.cg.hpp>
 #include <grx/vk/image_view.cg.hpp>
 #include <grx/vk/instance.hpp>
 #include <grx/vk/pipeline.cg.hpp>
@@ -21,6 +25,7 @@
 #include <grx/vk/structs.cg.hpp>
 #include <grx/vk/surface.hpp>
 #include <grx/vk/swapchain.cg.hpp>
+#include <grx/vk/sampler.cg.hpp>
 
 #include <grx/vk/info.hpp>
 #include <grx/vk/arg.hpp>

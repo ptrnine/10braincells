@@ -84,6 +84,55 @@ void generate_physical_device_header(const pugi::xml_node& registry, cg::vk::ext
         "        return result[core::type<T>];\n"
         "    }\n"
     );
+    c.definitions.push_back(
+        "bool support_extensions(const core::range auto&& required_extensions) const {\n"
+        "        auto extensions = extension_properties().value();\n"
+        "        for (auto&& required : required_extensions) {\n"
+        "            auto found = std::ranges::find_if(extensions, [&](const vk::extension_properties& ext) { return ext.extension_name == required; });\n"
+        "            if (found == extensions.end())\n"
+        "                return false;\n"
+        "        }\n"
+        "        return true;\n"
+        "    }\n"
+    );
+    c.definitions.push_back(
+        "struct queue_family_indices {\n"
+        "        u32 graphics;\n"
+        "        u32 present;\n"
+        "    };\n"
+        "\n"
+        "    core::opt<queue_family_indices> find_queue_family_indices(const vk::surface_khr& surface) {\n"
+        "        queue_family_indices result{\n"
+        "            .graphics = core::limits<u32>::max(),\n"
+        "            .present  = core::limits<u32>::max(),\n"
+        "        };\n"
+        "\n"
+        "        auto is_complete = [&] { return result.graphics != core::limits<u32>::max() && result.present != core::limits<u32>::max(); };\n"
+        "\n"
+        "        for (auto&& [idx, queue_family] : core::with_index(queue_family_properties())) {\n"
+        "            auto i = u32(idx);\n"
+        "\n"
+        "            if (queue_family.queue_flags.test(vk::queue_flag::graphics))\n"
+        "                result.graphics = i;\n"
+        "\n"
+        "            if (surface_support(i, surface))\n"
+        "                result.present = i;\n"
+        "\n"
+        "            if (is_complete())\n"
+        "                break;\n"
+        "        }\n"
+        "\n"
+        "        if (is_complete())\n"
+        "            return result;\n"
+        "        return {};\n"
+        "    }\n"
+    );
+    c.definitions.push_back(
+        "bool support_extensions(std::string_view required_extension) const {\n"
+        "        auto extensions = extension_properties().value();\n"
+        "        return std::ranges::find_if(extensions, [&](const vk::extension_properties& ext) { return ext.extension_name == required_extension; }) != extensions.end();\n"
+        "    }\n"
+    );
     c.after_class    = "\n"
                        "auto instance_t::physical_devices() const {\n"
                        "    return physical_devices_raw().map([this](std::span<const physical_device> devs) {\n"
@@ -100,6 +149,7 @@ void generate_physical_device_header(const pugi::xml_node& registry, cg::vk::ext
         "#include <grx/vk/instance.hpp>\n"
         "#include <grx/vk/commands.cg.hpp>\n"
         "#include <grx/vk/structs.cg.hpp>\n\n"
+        "\n"
     );
     c.generate(out, cmds, eg);
 }
@@ -114,6 +164,7 @@ void generate_logical_device_header(const pugi::xml_node& registry, cg::vk::exte
     c.name          = "device_t";
     c.functions     = {
         {.name = "create_swapchain_khr", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "swapchain_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_image", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "image_t", .func_type = cg::vk::member_func_type::ctor},
         {.name = "create_image_view", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "image_view_t", .func_type = cg::vk::member_func_type::ctor},
         {.name = "create_shader_module", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "shader_module_t", .func_type = cg::vk::member_func_type::ctor},
         {.name = "create_pipeline_layout", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "pipeline_layout_t", .func_type = cg::vk::member_func_type::ctor},
@@ -132,6 +183,11 @@ void generate_logical_device_header(const pugi::xml_node& registry, cg::vk::exte
         {.name = "wait_semaphores", .type = cg::vk::gen_type::only_cache_this},
         {.name = "allocate_memory", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "device_memory_t", .func_type = cg::vk::member_func_type::ctor},
         {.name = "create_buffer", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "buffer_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_descriptor_set_layout", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "descriptor_set_layout_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "create_descriptor_pool", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "descriptor_pool_t", .func_type = cg::vk::member_func_type::ctor},
+        {.name = "allocate_descriptor_sets", .type = cg::vk::gen_type::full_plus_declare_interface, .func_type = cg::vk::member_func_type::ctor},
+        {.name = "update_descriptor_sets"},
+        {.name = "create_sampler", .type = cg::vk::gen_type::full_plus_declare_interface, .external_interface = "sampler_t", .func_type = cg::vk::member_func_type::ctor},
     };
     c.func_prefixes  = {"device_"};
     c.func_postfixes = {"_khr", "_ext"};
@@ -199,6 +255,31 @@ void generate_swapchain_header(const pugi::xml_node& registry, cg::vk::external_
         "\n"
     );
 
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_image_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "iv";
+    c.handle.type        = "vk::image";
+    c.name               = "image_t";
+    c.functions          = {
+        {.name = "destroy_image", .func_type = cg::vk::member_func_type::dtor},
+        {.name = "get_image_memory_requirements"},
+        {.name = "bind_image_memory", .rename = "bind_memory"},
+    };
+    c.func_prefixes  = {"get_image_"};
+    c.func_postfixes = {"_khr", "_ext"};
+    c.copyable       = false;
     out.write(
         "#pragma once\n"
         "\n"
@@ -402,6 +483,8 @@ void generate_command_buffer_header(const pugi::xml_node& registry, cg::vk::exte
         {.name = "cmd_copy_buffer"},
         {.name = "cmd_bind_vertex_buffers"},
         {.name = "cmd_bind_index_buffer"},
+        {.name = "cmd_bind_descriptor_sets"},
+        {.name = "cmd_copy_buffer_to_image"},
     };
     c.definitions.push_back(
         "auto bind_vertex_buffer(u32 first_binding, const vk::buffer& buffer, device_size_t offset) {\n"
@@ -562,6 +645,99 @@ void generate_buffer_header(const pugi::xml_node& registry, cg::vk::external_gen
     c.generate(out, cmds, eg);
 }
 
+void generate_descriptor_set_layout_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "_handle";
+    c.handle.type        = "vk::descriptor_set_layout";
+    c.name               = "descriptor_set_layout_t";
+    c.functions          = {
+        {.name = "get_descriptor_set_layout_size_ext"},
+        {.name = "get_descriptor_set_layout_binding_offset_ext"},
+        {.name = "destroy_descriptor_set_layout", .func_type = cg::vk::member_func_type::dtor},
+    };
+    c.func_prefixes  = {"get_descriptor_set_layout_"};
+    c.func_postfixes = {"_khr", "_ext"};
+    c.copyable       = false;
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_descriptor_pool_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "_handle";
+    c.handle.type        = "vk::descriptor_pool";
+    c.name               = "descriptor_pool_t";
+    c.functions          = {
+        {.name = "reset_descriptor_pool", .rename = "reset"},
+        {.name = "destroy_descriptor_pool", .func_type = cg::vk::member_func_type::dtor},
+    };
+    c.func_postfixes = {"_khr", "_ext"};
+    c.copyable       = false;
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_descriptor_set_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "_handle";
+    c.handle.type        = "vk::descriptor_set";
+    c.name               = "descriptor_set_t";
+    c.functions          = {
+        {.name = "update_descriptor_set_with_template", .rename = "update_with_template"}
+    };
+    c.func_prefixes  = {"cmd_"};
+    c.func_postfixes = {"_khr", "_ext"};
+    c.copyable       = true;
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
+void generate_sampler_header(const pugi::xml_node& registry, cg::vk::external_generated& eg, auto&& out) {
+    auto                             cmds = cg::vk::parse_commands(registry);
+    cg::vk::class_instance_dependent c;
+    c.instance.name      = "dev";
+    c.instance.type      = "device_t";
+    c.instance.real_type = "vk::device";
+    c.handle.name        = "_handle";
+    c.handle.type        = "vk::sampler";
+    c.name               = "sampler_t";
+    c.functions          = {
+        {.name = "destroy_sampler", .func_type = cg::vk::member_func_type::dtor},
+    };
+    c.func_postfixes = {"_khr", "_ext"};
+    c.copyable       = false;
+    out.write(
+        "#pragma once\n"
+        "\n"
+        "#include <grx/vk/device.cg.hpp>\n\n"
+    );
+    c.generate(out, cmds, eg);
+}
+
 void tbc_main(vulkan_cmd<> args) {
     pugi::xml_document doc;
     doc.load_file(args.api->data());
@@ -584,6 +760,7 @@ void tbc_main(vulkan_cmd<> args) {
         {
             "physical_device_features",
             "pipeline_vertex_input_state_create_info",
+            "pipeline_depth_stencil_state_create_info",
             "physical_device_vulkan11_features",
             "physical_device_vulkan12_features",
             "physical_device_vulkan13_features",
@@ -591,8 +768,15 @@ void tbc_main(vulkan_cmd<> args) {
             "pipeline_rendering_create_info",
             "rendering_info",
             "rendering_attachment_info",
+            "stencil_op_state",
             "dependency_info",
             "buffer_create_info",
+            "image_memory_barrier",
+            "image_subresource_range",
+            "image_create_info",
+            "image_view_create_info",
+            "component_mapping",
+            "sampler_create_info",
         },
         openfile("structs.cg.hpp")
     );
@@ -607,6 +791,7 @@ void tbc_main(vulkan_cmd<> args) {
     generate_physical_device_header(registry, eg, openfile("physical_device.cg.hpp"));
     generate_logical_device_header(registry, eg, openfile("device.cg.hpp"));
     generate_swapchain_header(registry, eg, openfile("swapchain.cg.hpp"));
+    generate_image_header(registry, eg, openfile("image.cg.hpp"));
     generate_image_view_header(registry, eg, openfile("image_view.cg.hpp"));
     generate_shader_module_header(registry, eg, openfile("shader_module.cg.hpp"));
     generate_pipeline_layout_header(registry, eg, openfile("pipeline_layout.cg.hpp"));
@@ -620,6 +805,10 @@ void tbc_main(vulkan_cmd<> args) {
     generate_queue_header(registry, eg, openfile("queue.cg.hpp"));
     generate_device_memory_header(registry, eg, openfile("device_memory.cg.hpp"));
     generate_buffer_header(registry, eg, openfile("buffer.cg.hpp"));
+    generate_descriptor_set_layout_header(registry, eg, openfile("descriptor_set_layout.cg.hpp"));
+    generate_descriptor_pool_header(registry, eg, openfile("descriptor_pool.cg.hpp"));
+    generate_descriptor_set_header(registry, eg, openfile("descriptor_set.cg.hpp"));
+    generate_sampler_header(registry, eg, openfile("sampler.cg.hpp"));
 }
 
 #include <util/tbc_main.hpp>

@@ -346,7 +346,7 @@ struct class_instance_dependent {
                     "        if (${hname}.not_default()) {\n" |
                         cfg,
 
-                    "            instance().logger().info(\"Destroy ${htype} handle={}\", ${hname}.get());\n" | cfg,
+                    "            instance().logger().info(\"Destroy ${htype} handle={} after move assignment\", ${hname}.get());\n" | cfg,
                     "            f[cmd::",
                     meet_dtor->name,
                     "].call(",

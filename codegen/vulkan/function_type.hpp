@@ -148,6 +148,8 @@ inline function_cpp_args cppify_args(std::span<const function_arg> args) {
                     a.bind_size = arg.length_arg;
                     //res.result.calculate_size = false;
                     res.result.length_calc = a.name + ".size()";
+                } else if (a.type == "const void") {
+                    a.type += '*';
                 } else {
                     a.type += '&';
                 }

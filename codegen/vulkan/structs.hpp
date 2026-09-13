@@ -61,8 +61,29 @@ inline auto parse_structs(const pugi::xml_node&        registry,
                     else if (field.type == "bool32_t" || field.type == "u32") {
                         field.value = "0";
                     }
-                    else if (field.type == "format" || field.type == "vk::image_layout") {
+                    else if (field.type == "format" || field.type == "vk::image_layout" || field.type == "image_layout") {
                         field.value = field.type + "::undefined";
+                    }
+                    else if (field.type == "stencil_op") {
+                        field.value = field.type + "::keep";
+                    }
+                    else if (field.type == "compare_op") {
+                        field.value = field.type + "::never";
+                    }
+                    else if (field.type == "float") {
+                        field.value = "0.f";
+                    }
+                    else if (field.type == "stencil_op_state" || field.type == "component_mapping") {
+                        field.value = "{}";
+                    }
+                    else if (field.type == "access_flags") {
+                        field.value = field.type + "::none";
+                    }
+                    else if (field.type == "component_swizzle") {
+                        field.value = field.type + "::identity";
+                    }
+                    else if (field.type == "border_color") {
+                        field.value = field.type + "::float_transparent_black";
                     }
                 }
 

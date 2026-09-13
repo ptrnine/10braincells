@@ -257,6 +257,13 @@ public:
         return {*this};
     }
 
+    void debug_print_functions() const {
+        glog().debug("vk::instance_t functions:");
+        for (auto&& name: func_cache) {
+            glog().debug("  {}", name);
+        }
+    }
+
 private:
     void destroy() {
         if (inst.not_default()) {
@@ -561,6 +568,18 @@ auto* chain_setup(core::tuple<Ts...>& chain) {
         return &chain[core::size_c<0>];
     } else {
         return (void*)nullptr;
+    }
+}
+
+template <typename T>
+    requires core::any_of<T, u8, u16, u32>
+vk::index_type to_index_type(core::type_t<T> = {}) {
+    if constexpr (core::is_same<T, u8>) {
+        return vk::index_type::uint8;
+    } else if constexpr (core::is_same<T, u16>) {
+        return vk::index_type::uint16;
+    } else if constexpr (core::is_same<T, u32>) {
+        return vk::index_type::uint32;
     }
 }
 } // namespace vk
