@@ -2,6 +2,12 @@
 // in first-person view. The gun's geometry uses the Minecraft Bedrock format
 // ("minecraft:geometry"); see tacz_geo.hpp for the parser. Camera and input
 // handling are based on vk_perspective_camera.cpp.
+//
+// Animations: the gun's animation file is parsed into keyframe animations
+// (see tacz_geo.hpp); the static_idle one gives the resting pose. Space
+// cycles the selected animation, left mouse click plays it from the start;
+// the mesh is rebuilt on the CPU every frame while playing. Non-looping
+// animations stop at their end (looping ones, e.g. shoot, keep going).
 
 #include <chrono>
 #include <grx/vk.hpp>
@@ -162,13 +168,15 @@ struct std::hash<vertex> {
 
 /* Per-frame state filled by the input handlers below */
 struct camera_input {
-    i32  forward  = 0; /* W */
-    i32  backward = 0; /* S */
-    i32  left     = 0; /* A */
-    i32  right    = 0; /* D */
-    i32  dx       = 0; /* mouse horizontal delta (counts) */
-    i32  dy       = 0; /* mouse vertical delta (counts) */
-    bool quit     = false;
+    i32  forward     = 0; /* W */
+    i32  backward    = 0; /* S */
+    i32  left        = 0; /* A */
+    i32  right       = 0; /* D */
+    i32  dx          = 0; /* mouse horizontal delta (counts) */
+    i32  dy          = 0; /* mouse vertical delta (counts) */
+    bool quit        = false;
+    bool switch_anim = false; /* space: cycle to the next animation */
+    bool play_anim   = false; /* left mouse click: play the selected animation */
 
     void reset_relative() {
         dx = dy = 0;
@@ -201,6 +209,10 @@ auto handle_keyboard(sys::fd_t fd, camera_input& input) {
                         case sys::event_key_code::d:
                             input.right = value;
                             break;
+                        case sys::event_key_code::space:
+                            if (value)
+                                input.switch_anim = true;
+                            break;
                         case sys::event_key_code::esc:
                             if (value)
                                 input.quit = true;
@@ -225,18 +237,23 @@ auto handle_mouse(sys::fd_t fd, camera_input& input) {
 
             if (auto count = sys::read(fd, buff)) {
                 for (auto&& event : std::span{buff}.subspan(0, *count)) {
-                    event.dispatch([&](sys::event_relative_code code, i32 value) {
-                        switch (code) {
-                        case sys::event_relative_code::x:
-                            input.dx += value;
-                            break;
-                        case sys::event_relative_code::y:
-                            input.dy += value;
-                            break;
-                        default:
-                            break;
-                        }
-                    });
+                    event.dispatch(
+                        [&](sys::event_relative_code code, i32 value) {
+                            switch (code) {
+                            case sys::event_relative_code::x:
+                                input.dx += value;
+                                break;
+                            case sys::event_relative_code::y:
+                                input.dy += value;
+                                break;
+                            default:
+                                break;
+                            }
+                        },
+                        [&](sys::event_button_code code, i32 value) {
+                            if (code == sys::event_button_code::left && value)
+                                input.play_anim = true;
+                        });
                 }
             }
         },
@@ -491,8 +508,30 @@ public:
             }
 
             auto now = std::chrono::high_resolution_clock::now();
-            update_camera(input, std::chrono::duration<f32>(now - last_frame).count());
+            const f32 dt = std::chrono::duration<f32>(now - last_frame).count();
             last_frame = now;
+
+            /* Animation controls: space cycles the selection (and returns the
+               gun to the idle pose), left click plays the selected animation
+               from the start. */
+            if (input.switch_anim && !anims_list.empty()) {
+                selected_anim = (selected_anim + 1) % anims_list.size();
+                playing = false;
+                anim_time = 0.f;
+                rebuild_mesh();
+                std::memcpy(vertex_data, vertices.data(), sizeof(vertex) * vertices.size());
+                std::memcpy(index_data, indices.data(), sizeof(u32) * indices.size());
+                log.info("selected animation: '{}'", anims_list[selected_anim].name);
+            }
+            if (input.play_anim && !anims_list.empty()) {
+                playing = true;
+                anim_time = 0.f;
+            }
+            input.switch_anim = false;
+            input.play_anim   = false;
+
+            update_camera(input, dt);
+            update_animation(dt);
 
             dev.wait(in_flight_fences[frame]);
 
@@ -791,26 +830,25 @@ private:
         graphics_queue.wait_idle().throws();
     }
 
+    /* The mesh is rebuilt on the CPU while an animation plays, so the
+       vertex/index buffers live in host-visible memory and are updated in
+       place (safe: the frame loop waits for the previous frame's GPU work
+       before touching these buffers). Animated frames can have fewer faces
+       than the idle pose (a scale-0 channel hides its cubes), so the buffers
+       are sized to the absolute maximum: every UV-mapped face of every
+       bone not in a hidden-by-default subtree. */
     void create_vertex_buffer() {
-        auto size = sizeof(vertices[0]) * vertices.size();
-        auto staging =
-            create_buffer(size, vk::buffer_usage_flags::transfer_src, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
-        auto data_staging = staging.memory.map_memory(0, size).value();
-        std::memcpy(data_staging, vertices.data(), size);
-        staging.memory.unmap_memory();
-        vertex_b = create_buffer(size, vk::buffer_usage_flags::transfer_dst | vk::buffer_usage_flags::vertex_buffer, vk::memory_property_flags::device_local);
-        copy_buffer(staging.buffer, vertex_b.buffer, size);
+        auto size = sizeof(vertex) * u32{max_faces} * 4;
+        vertex_b = create_buffer(size, vk::buffer_usage_flags::vertex_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+        vertex_data = vertex_b.memory.map_memory(0, size).value();
+        std::memcpy(vertex_data, vertices.data(), sizeof(vertex) * vertices.size());
     }
 
     void create_index_buffer() {
-        auto size = sizeof(indices[0]) * indices.size();
-        auto staging =
-            create_buffer(size, vk::buffer_usage_flags::transfer_src, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
-        auto data_staging = staging.memory.map_memory(0, size).value();
-        std::memcpy(data_staging, indices.data(), size);
-        staging.memory.unmap_memory();
-        index_b = create_buffer(size, vk::buffer_usage_flags::transfer_dst | vk::buffer_usage_flags::index_buffer, vk::memory_property_flags::device_local);
-        copy_buffer(staging.buffer, index_b.buffer, size);
+        auto size = sizeof(u32) * u32{max_faces} * 6;
+        index_b = create_buffer(size, vk::buffer_usage_flags::index_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+        index_data = index_b.memory.map_memory(0, size).value();
+        std::memcpy(index_data, indices.data(), sizeof(u32) * indices.size());
     }
 
     void create_depth_buffer() {
@@ -1037,22 +1075,30 @@ private:
         );
     }
 
-    void load_model() {
-        // Parse the Bedrock geometry and flatten it into a triangle mesh
-        // already in first-person eye space (the TACZ camera chain is baked
-        // in by tacz::build_mesh), so the model matrix is just a scale.
-        auto geo = tacz::load_geometry(std::string{kGeoDir} + gun_name + "_geo.json");
-
-        // Bake the static idle pose (places the hand/arm proxy cubes at the
-        // grip, as in game); missing animation files are fine.
-        std::map<std::string, tacz::bone_anim> anims;
-        try {
-            anims = tacz::load_idle_animation(std::string{kAnimDir} + gun_name + ".animation.json");
-        } catch (...) {
-            log.info("no animation file for '{}', using rest pose", gun_name);
+    /* (Re)build the eye-space mesh for the current pose: the static idle
+       pose, or the selected animation sampled at anim_time. */
+    void rebuild_mesh() {
+        std::map<std::string, tacz::bone_anim> anims = idle_anims;
+        if (selected_anim < anims_list.size() && (playing || anim_time > 0.f)) {
+            // Sampled channels override the static_idle ones; channels the
+            // animation does not sample keep their static_idle values (the
+            // gun pack authors keyframes as absolute poses that start from
+            // the idle values, so the t = 0 frame is exactly the idle pose).
+            for (auto& [name, ba] : tacz::sample_animation(anims_list[selected_anim], anim_time)) {
+                auto& cur = anims[name];
+                if (ba.position)
+                    cur.position = ba.position;
+                if (ba.rotation)
+                    cur.rotation = ba.rotation;
+                if (ba.scale)
+                    cur.scale = ba.scale;
+            }
         }
         auto mesh = tacz::build_mesh(geo, anims);
 
+        vertices.clear();
+        indices.clear();
+        vertices.reserve(mesh.vertices.size());
         for (auto&& mv : mesh.vertices) {
             vertex v{};
             v.pos.set(mv.pos.x, mv.pos.y, mv.pos.z);
@@ -1063,6 +1109,59 @@ private:
             vertices.push_back(v);
         }
         indices = mov(mesh.indices);
+    }
+
+    /* Advance the playing animation by dt and push the rebuilt mesh into the
+       vertex/index buffers. Non-looping animations stop at their end (the
+       last frame then stays in the buffers until it is re-played or
+       switched). */
+    void update_animation(f32 dt) {
+        if (!playing || selected_anim >= anims_list.size())
+            return;
+        const auto& a = anims_list[selected_anim];
+        anim_time += dt;
+        if (!a.loop && a.end_time > 0.f && anim_time >= a.end_time) {
+            anim_time = a.end_time;
+            playing = false; // stop at the end
+        }
+        rebuild_mesh();
+        std::memcpy(vertex_data, vertices.data(), sizeof(vertex) * vertices.size());
+        std::memcpy(index_data, indices.data(), sizeof(u32) * indices.size());
+    }
+
+    void load_model() {
+        // Parse the Bedrock geometry and flatten it into a triangle mesh
+        // already in first-person eye space (the TACZ camera chain is baked
+        // in by tacz::build_mesh), so the model matrix is just a scale.
+        geo = tacz::load_geometry(std::string{kGeoDir} + gun_name + "_geo.json");
+
+        // Bake the static idle pose (places the hand/arm proxy cubes at the
+        // grip, as in game); missing animation files are fine.
+        const auto anim_path = std::string{kAnimDir} + gun_name + ".animation.json";
+        try {
+            idle_anims = tacz::load_idle_animation(anim_path);
+
+            // Playable keyframe animations (the static_* entries are just
+            // constant poses, not animations).
+            for (auto a : tacz::load_animations(anim_path))
+                if (!a.name.starts_with("static_"))
+                    anims_list.push_back(mov(a));
+            if (anims_list.empty())
+                log.info("no playable animations for '{}'", gun_name);
+            else {
+                for (size_t i = 0; i < anims_list.size(); ++i)
+                    log.info("animation {}: '{}'{}", i, anims_list[i].name, anims_list[i].loop ? " [loop]" : "");
+            }
+        } catch (...) {
+            log.info("no animation file for '{}', using rest pose", gun_name);
+        }
+
+        rebuild_mesh();
+
+        // Absolute upper bound on the face count of any pose (see the buffer
+        // creation comment); the buffers are sized to this so animation
+        // frames can never overflow them.
+        max_faces = tacz::max_face_count(geo);
 
         // Vanilla MC 1.12.2 idle main-hand transform (ItemRenderer.renderItemInFirstPerson,
         // right-handed player, at rest): the 45/-45 Y rotations cancel and the swing
@@ -1071,7 +1170,12 @@ private:
         const auto idle = glm::translate(glm::mat4{1.f}, glm::vec3{0.56f, -0.52f, -0.72f});
         model_matrix = glm::mat4{scale, 0.f, 0.f, 0.f, 0.f, scale, 0.f, 0.f, 0.f, 0.f, scale, 0.f, 0.f, 0.f, 0.f, 1.f} * idle;
 
-        auto [mn, mx] = tacz::bounding_box(mesh);
+        glm::vec3 mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+        for (auto&& v : vertices) {
+            const auto p = glm::vec3(v.pos.x(), v.pos.y(), v.pos.z());
+            mn = glm::min(mn, p);
+            mx = glm::max(mx, p);
+        }
         log.info("loaded gun '{}': {} verts, {} indices, eye-space bbox ({}, {}, {})..({}, {}, {})", gun_name, vertices.size(), indices.size(), mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]);
     }
 
@@ -1096,8 +1200,18 @@ private:
 
     std::vector<vertex> vertices;
     std::vector<u32> indices;
+    u32 max_faces{}; // tacz::max_face_count(geo): buffer sizing upper bound
     buffer_result vertex_b;
     buffer_result index_b;
+    void*               vertex_data{}; /* mapped vertex buffer (host visible) */
+    void*               index_data{};  /* mapped index buffer (host visible) */
+
+    tacz::geometry                    geo{};
+    std::map<std::string, tacz::bone_anim> idle_anims; /* "static_idle" pose */
+    std::vector<tacz::keyframe_anim>  anims_list; /* playable (non-static) animations */
+    size_t                            selected_anim = 0;
+    bool                              playing = false;
+    f32                               anim_time = 0.f; /* seconds into the selected animation */
 
     vk::command_pool_t            command_pool;
     vk::command_buffer_store_t    command_buffers;

@@ -122,12 +122,14 @@ struct geometry {
     std::vector<bone> bones;
 };
 
-// One bone's constant (non-keyframed) animation values from the gun pack's
-// "static_idle" animation (format_version 1.8.0): a per-bone
-// {position, rotation, scale} in the bedrock (y-up, 1/16) convention.
-//   * position: delta from the bone's rest pose, 1/16 units
-//   * rotation: additional rotation, degrees (Rz*Ry*Rx, same order as bones)
-//   * scale:    scale multipliers (bedrock AnimationKeyframes, applied last)
+// One bone's constant animation values, either from the gun pack's
+// "static_idle" animation or sampled from a keyframe animation (see
+// sample_animation). Values are in the bedrock (y-up, 1/16) convention:
+//   * position: delta from the bone's rest pose, 1/16 units, applied in the
+//               parent frame (pre-multiplied into the base transform)
+//   * rotation: additional rotation, degrees (Rz*Ry*Rx, same order as bones),
+//               applied in the bone frame (post-multiplied)
+//   * scale:    scale multipliers (post-multiplied)
 struct bone_anim {
     std::optional<glm::vec3> position;
     std::optional<glm::vec3> rotation;
@@ -181,19 +183,21 @@ inline glm::mat4 bone_local(const bone_pose& p) {
     return trans(p.pivot16 / 16.f) * rot_z(p.rot.z) * rot_y(p.rot.y) * rot_x(p.rot.x);
 }
 
-// Bone local transform with a static animation applied
-// (BedrockPart.translateAndRotateAndScale + AnimationListeners):
-//   T(offset) * T(pivot/16) * Rz * Ry * Rx * Q_anim * Scale
-// where offset = (d.x, -d.y, d.z) / 16 (bedrock y-up delta -> y-down blocks).
+// Bone local transform with an animation applied (BedrockPart +
+// AnimationListeners):
+//   T(pos/16) * ( T(pivot/16) * Rz * Ry * Rx ) * R(rot) * S(scale)
+// The position delta is a bedrock y-up offset, converted to y-down blocks
+// (d.x, -d.y, d.z) / 16 and applied in the parent frame; rotation and scale
+// are applied in the bone frame.
 inline glm::mat4 bone_local(const bone_pose& p, const bone_anim* a) {
     glm::mat4 m = bone_local(p);
     if (a) {
+        if (a->position)
+            m = trans(glm::vec3{a->position->x, -a->position->y, a->position->z} / 16.f) * m;
         if (a->rotation)
             m = m * rot_z(glm::radians(a->rotation->z)) * rot_y(glm::radians(a->rotation->y)) * rot_x(glm::radians(a->rotation->x));
         if (a->scale)
             m = m * glm::scale(glm::mat4(1.f), a->scale.value());
-        if (a->position)
-            m = trans(glm::vec3{a->position->x, -a->position->y, a->position->z} / 16.f) * m;
     }
     return m;
 }
@@ -351,21 +355,40 @@ inline std::map<std::string, bone_anim> parse_idle_animation(const nlohmann::jso
     auto read_v3 = [](const nlohmann::json& v) {
         return glm::vec3{v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>()};
     };
-    auto read_v3_at = [&read_v3](const nlohmann::json& obj, std::string_view key) -> std::optional<glm::vec3> {
+    // A constant value in any of the channel forms the pack uses:
+    //   [x, y, z] | N (uniform scale) | {"0.0": [x, y, z]} |
+    //   {"0.0": {"post"|"data": [x, y, z]}}
+    auto read_v3_const = [&read_v3](const nlohmann::json& v) -> std::optional<glm::vec3> {
+        if (v.is_number())
+            return glm::vec3{v.get<f32>()};
+        if (v.is_array())
+            return read_v3(v);
+        if (!v.is_object())
+            return std::nullopt;
+        if (v.size() == 1) {
+            for (auto& [k, val] : v.items()) {
+                if (val.is_array())
+                    return read_v3(val);
+                if (val.is_object()) {
+                    for (auto& key : {"post", "data"})
+                        if (val.contains(key) && val.at(key).is_array())
+                            return read_v3(val.at(key));
+                }
+            }
+        }
+        return std::nullopt;
+    };
+    auto read_v3_at = [&read_v3_const](const nlohmann::json& obj, std::string_view key) -> std::optional<glm::vec3> {
         auto fit = obj.find(key);
         if (fit == obj.end())
             return std::nullopt;
-        if (fit->is_array())
-            return read_v3(*fit);
-        if (fit->is_object() && fit->contains("0.0") && fit->at("0.0").is_object() && fit->at("0.0").contains("data"))
-            return read_v3(fit->at("0.0").at("data"));
-        return std::nullopt;
+        return read_v3_const(*fit);
     };
     for (auto& [name, b] : bones->items()) {
         bone_anim a{
-            read_v3_at(b, "position"),
-            read_v3_at(b, "rotation"),
-            read_v3_at(b, "scale"),
+            .position = read_v3_at(b, "position"),
+            .rotation = read_v3_at(b, "rotation"),
+            .scale    = read_v3_at(b, "scale"),
         };
         if (a.position || a.rotation || a.scale)
             out[name] = a;
@@ -381,6 +404,268 @@ inline std::map<std::string, bone_anim> load_idle_animation(std::string_view pat
     auto map  = core::io::mmap{file, sys::map_prot::read, sys::map_flag::priv};
     auto data = map.data<char>();
     return parse_idle_animation(nlohmann::json::parse(data, data + map.size()));
+}
+
+// Keyframe animation data (bedrock format_version 1.8.0).
+//
+// A channel is a map of time (seconds, as a string) to a keyframe value:
+//   * a bare [x, y, z] array
+//   * {"pre": [...], "post": [...]}, optionally with "lerp_mode" / "spline"
+// The gun pack only ever uses lerp_mode "catmullrom" (the bedrock default).
+//
+// "pre" is the value at the END of the incoming segment (just before the
+// keyframe time); "post" is the value at the START of the outgoing segment
+// (just after). A bare array / an object without "pre" means pre == post.
+// A keyframe with pre != post is an instantaneous jump at that time (the gun
+// pack uses this for parts appearing/disappearing: scale 0 <-> 1, and for
+// hands teleporting during fast reloads).
+struct keyframe {
+    f32     time{};   // seconds
+    glm::vec3 pre{};  // incoming-segment end value
+    glm::vec3 post{}; // outgoing-segment start value
+};
+
+struct anim_channel {
+    std::vector<keyframe> keys; // sorted by time
+};
+
+struct bone_track {
+    anim_channel position;
+    anim_channel rotation;
+    anim_channel scale;
+};
+
+struct keyframe_anim {
+    std::string name;
+    f32         length = 0.f;   // "animation_length", seconds
+    bool        loop = false;   // "loop": true (the pack also uses false / "hold_on_last_frame")
+    f32         end_time = 0.f; // max(length, last keyframe time): playback stops here when not looping
+    std::map<std::string, bone_track> bones;
+};
+
+namespace details
+{
+inline void parse_keyframes(const nlohmann::json& j, anim_channel& ch)
+{
+    auto read_v3 = [](const nlohmann::json& v) {
+        return glm::vec3{v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>()};
+    };
+    for (auto& [time, value] : j.items()) {
+        const f32 t = f32(std::stof(time));
+        if (value.is_array()) {
+            const auto v = read_v3(value);
+            ch.keys.push_back(keyframe{t, v, v});
+            continue;
+        }
+        if (!value.is_object())
+            continue;
+        keyframe kf{t, {}, {}};
+        bool has_pre = false, has_post = false;
+        if (value.contains("pre") && value.at("pre").is_array()) {
+            kf.pre = read_v3(value.at("pre"));
+            has_pre = true;
+        }
+        if (value.contains("post") && value.at("post").is_array()) {
+            kf.post = read_v3(value.at("post"));
+            has_post = true;
+        }
+        if (!has_pre && value.contains("data") && value.at("data").is_array()) {
+            kf.post = read_v3(value.at("data"));
+            has_post = true;
+        }
+        if (has_pre && !has_post)
+            kf.post = kf.pre;
+        if (!has_pre)
+            kf.pre = kf.post;
+        if (has_pre || has_post)
+            ch.keys.push_back(kf);
+    }
+    std::sort(ch.keys.begin(), ch.keys.end(),
+              [](const keyframe& a, const keyframe& b) { return a.time < b.time; });
+}
+}
+
+// Parse every animation of a gun pack animation file (in file order).
+// Throws if the "animations" object is missing.
+inline std::vector<keyframe_anim> parse_animations(const nlohmann::json& j)
+{
+    std::vector<keyframe_anim> out;
+    auto ait = j.find("animations");
+    if (ait == j.end() || !ait->is_object())
+        throw std::runtime_error("animation file has no 'animations' object");
+
+    auto read_v3 = [](const nlohmann::json& v) {
+        return glm::vec3{v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>()};
+    };
+    for (auto& [name, a] : ait->items()) {
+        if (!a.is_object())
+            continue;
+        keyframe_anim anim;
+        anim.name = name;
+        if (a.contains("animation_length") && a.at("animation_length").is_number())
+            anim.length = a.at("animation_length").get<f32>();
+        if (a.contains("loop")) {
+            const auto& l = a.at("loop");
+            anim.loop = l.is_boolean() ? l.get<bool>() : (l.is_string() && l.get<std::string>() == "loop");
+        }
+        if (a.contains("bones") && a.at("bones").is_object()) {
+            for (auto& [bn, b] : a.at("bones").items()) {
+                if (!b.is_object())
+                    continue;
+                bone_track track;
+                for (auto& [prop, v] : b.items()) {
+                    anim_channel* ch = nullptr;
+                    if (prop == "position")
+                        ch = &track.position;
+                    else if (prop == "rotation")
+                        ch = &track.rotation;
+                    else if (prop == "scale")
+                        ch = &track.scale;
+                    if (!ch)
+                        continue;
+                    if (v.is_array()) {
+                        // Constant channel: a bare [x, y, z] holds for the
+                        // whole animation.
+                        const auto val = read_v3(v);
+                        ch->keys.push_back(keyframe{0.f, val, val});
+                    } else if (v.is_number()) {
+                        // Scalar scale (e.g. 0 to hide a part): a uniform
+                        // scale by that number.
+                        const auto s = glm::vec3{v.get<f32>()};
+                        ch->keys.push_back(keyframe{0.f, s, s});
+                    } else if (v.is_object()) {
+                        details::parse_keyframes(v, *ch);
+                    }
+                }
+                const bool empty = track.position.keys.empty() && track.rotation.keys.empty() && track.scale.keys.empty();
+                if (!empty)
+                    anim.bones[bn] = track;
+            }
+        }
+        f32 end = anim.length;
+        for (auto& [bn, track] : anim.bones)
+            for (auto& ch : {track.position, track.rotation, track.scale})
+                if (!ch.keys.empty())
+                    end = std::max(end, ch.keys.back().time);
+        anim.end_time = end;
+        out.push_back(std::move(anim));
+    }
+    return out;
+}
+
+// Load the gun pack animation file and return all its animations (throws if
+// the file is missing).
+inline std::vector<keyframe_anim> load_animations(std::string_view path)
+{
+    auto file = core::io::file::open(std::string{path}, sys::openflag::read_only);
+    auto map  = core::io::mmap{file, sys::map_prot::read, sys::map_flag::priv};
+    auto data = map.data<char>();
+    return parse_animations(nlohmann::json::parse(data, data + map.size()));
+}
+
+// Sample one animation channel at time t. The segment (i -> i + 1)
+// interpolates keys[i].post to keys[i + 1].pre as a catmullrom spline:
+// bedrock's uniform-parameter Catmull-Rom (cubic Hermite with unit-segment
+// tangents m = 0.5 * (next - prev); time enters only through the normalized
+// in-segment parameter, so key spacing does NOT rescale the tangents). A
+// keyframe with pre != post is an instantaneous jump:
+// the channel holds pre up to that time, then jumps to post. Times before
+// the first keyframe sample keys[0].pre, times after the last one
+// keys.back().post (looped channels wrap instead).
+inline glm::vec3 sample_track(const std::vector<keyframe>& keys, f32 t, bool loop)
+{
+    const size_t n = keys.size();
+    if (n == 0)
+        return {};
+    if (n == 1)
+        return t < keys[0].time ? keys[0].pre : keys[0].post;
+    const f32 first = keys.front().time;
+    const f32 last  = keys.back().time;
+    if (last <= first)
+        return t < first ? keys.front().pre : keys.back().post;
+    const f32 period = last - first;
+
+    // Locate the segment i with keys[i].time <= tt < keys[i + 1].time; for
+    // looped channels tt is shifted into [first, last + period) and
+    // i == n - 1 is the wrap segment into the next loop.
+    f32 tt;
+    size_t i;
+    if (loop) {
+        if (t >= first && t < last) {
+            tt = t; // no wrap needed: bit-exact for keyframe times
+        } else {
+            tt = first + std::fmod(t - first, period);
+            if (tt < first)
+                tt += period;
+        }
+        if (tt >= last) {
+            i = n - 1;
+        } else {
+            i = 0;
+            while (keys[i + 1].time <= tt)
+                ++i;
+        }
+    } else {
+        if (t < first)
+            return keys.front().pre;
+        if (t >= last)
+            return keys.back().post;
+        tt = t;
+        i = 0;
+        while (keys[i + 1].time <= tt)
+            ++i;
+    }
+
+    const bool wrap = loop && i == n - 1;
+    const size_t i1 = wrap ? n : i + 1; // segment end key (n = first key, next loop)
+    const glm::vec3 p1 = keys[i].post;
+    const glm::vec3 p2 = wrap ? keys[0].pre : keys[i1].pre;
+    const f32 t1 = keys[i].time;
+    const f32 t2 = wrap ? first + period : keys[i1].time;
+    const f32 a  = t2 > t1 ? (tt - t1) / (t2 - t1) : 0.f;
+    if (a >= 1.f) // exactly on the segment end key: its outgoing value
+        return wrap ? keys[0].post : keys[i1].post;
+
+    // Neighbouring spline points: p0 is the previous segment's end value,
+    // p3 the next segment's start value (the post values of keys i - 1 /
+    // i + 1), clamped at the track ends. Uniform Catmull-Rom uses only the
+    // values, not their times.
+    glm::vec3 p0 = p1, p3 = p2;
+    if (i > 0) {
+        p0 = keys[i - 1].post;
+    } else if (loop) {
+        p0 = keys[n - 1].post;
+    }
+    if (wrap) {
+        p0 = keys[n - 2].post;
+        p3 = keys[0].post;
+    } else {
+        p3 = keys[i1].post;
+    }
+    const glm::vec3 m1 = 0.5f * (p2 - p0);
+    const glm::vec3 m2 = 0.5f * (p3 - p1);
+    const f32 a2 = a * a;
+    const f32 a3 = a2 * a;
+    return (2.f * a3 - 3.f * a2 + 1.f) * p1 + (a3 - 2.f * a2 + a) * m1 +
+           (-2.f * a3 + 3.f * a2) * p2 + (a3 - a2) * m2;
+}
+
+// Sample a keyframe animation at time t into per-bone values in the same
+// form as a "static_idle" map, so the result can be passed to build_mesh().
+inline std::map<std::string, bone_anim> sample_animation(const keyframe_anim& a, f32 t)
+{
+    std::map<std::string, bone_anim> out;
+    for (auto& [name, track] : a.bones) {
+        bone_anim ba;
+        if (!track.position.keys.empty())
+            ba.position = sample_track(track.position.keys, t, a.loop);
+        if (!track.rotation.keys.empty())
+            ba.rotation = sample_track(track.rotation.keys, t, a.loop);
+        if (!track.scale.keys.empty())
+            ba.scale = sample_track(track.scale.keys, t, a.loop);
+        out[name] = ba;
+    }
+    return out;
 }
 
 // face_dbg: if non-null, build_mesh writes one line per collected face:
@@ -412,10 +697,11 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         glm::vec2 uv[4];
         glm::vec3 nrm{}; // face normal (normalized)
         f32       d{};   // plane offset nrm . p
+        std::string bone; // owning bone (face_dbg only)
     };
     std::vector<raw_face> faces;
 
-    auto emit_cube = [&](const glm::mat4& M, const glm::vec3& local_min, const glm::vec3& local_max, const cube& c) {
+    auto emit_cube = [&](const char* bone_name, const glm::mat4& M, const glm::vec3& local_min, const glm::vec3& local_max, const cube& c) {
         const glm::vec3 v[8] = {
             local_min,
             {local_max.x, local_min.y, local_min.z},
@@ -446,7 +732,11 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 rf.p[i]  = glm::vec3(M * glm::vec4(v[f.verts[i]] / 16.f, 1.f));
                 rf.uv[i] = t[i];
             }
-            const glm::vec3 n = glm::normalize(glm::cross(rf.p[1] - rf.p[0], rf.p[2] - rf.p[0]));
+            rf.bone = bone_name;
+            const glm::vec3 cr = glm::cross(rf.p[1] - rf.p[0], rf.p[2] - rf.p[0]);
+            if (glm::dot(cr, cr) < 1e-12f)
+                continue; // degenerate face (e.g. a scale-0 cube): emit nothing
+            const glm::vec3 n = glm::normalize(cr);
             rf.nrm = n;
             rf.d   = glm::dot(n, rf.p[0]);
             faces.push_back(rf);
@@ -470,10 +760,10 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 const glm::mat4 sub = M * details::trans({(cp.x - b.pivot.x) / 16.f, (b.pivot.y - cp.y) / 16.f, (cp.z - b.pivot.z) / 16.f})
                                     * details::rot_z(glm::radians(c.rotation->z)) * details::rot_y(glm::radians(c.rotation->y)) * details::rot_x(glm::radians(c.rotation->x));
                 const glm::vec3 min16 = {c.origin.x - cp.x, cp.y - c.origin.y - c.size.y, c.origin.z - cp.z};
-                emit_cube(sub, min16 - c.inflate, min16 + c.size + c.inflate, c);
+                emit_cube(b.name.c_str(), sub, min16 - c.inflate, min16 + c.size + c.inflate, c);
             } else {
                 const glm::vec3 min16 = {c.origin.x - b.pivot.x, b.pivot.y - c.origin.y - c.size.y, c.origin.z - b.pivot.z};
-                emit_cube(M, min16 - c.inflate, min16 + c.size + c.inflate, c);
+                emit_cube(b.name.c_str(), M, min16 - c.inflate, min16 + c.size + c.inflate, c);
             }
         }
 
@@ -519,7 +809,7 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
     if (face_dbg)
         for (u32 i = 0; i < faces.size(); ++i) {
             const auto& p0 = faces[i].p[0];
-            *face_dbg << "face " << i << " nrm=" << faces[i].nrm.x << "," << faces[i].nrm.y << "," << faces[i].nrm.z << " d=" << faces[i].d << " p0=" << p0.x << "," << p0.y << "," << p0.z << "\n";
+            *face_dbg << "face " << i << " bone=" << faces[i].bone << " nrm=" << faces[i].nrm.x << "," << faces[i].nrm.y << "," << faces[i].nrm.z << " d=" << faces[i].d << " p0=" << p0.x << "," << p0.y << "," << p0.z << "\n";
         }
 
     struct subgroup {
@@ -570,6 +860,34 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         }
     }
     return out;
+}
+
+// Upper bound on the face count of build_mesh's output for this geometry:
+// every UV-mapped face of every bone not in a hidden-by-default subtree. No
+// pose can exceed it, so vertex/index buffers sized to it never need to
+// grow (animated frames with fewer faces, e.g. scale-0 parts, are smaller).
+inline u32 max_face_count(const geometry& geo) {
+    std::map<std::string, const bone*> by_name;
+    for (auto& b : geo.bones)
+        by_name.try_emplace(b.name, &b);
+
+    u32 n = 0;
+    for (auto& b : geo.bones) {
+        const bone* p = &b;
+        bool hidden = false;
+        while (p) {
+            if (hidden_by_default(p->name)) {
+                hidden = true;
+                break;
+            }
+            p = p->parent ? by_name.find(*p->parent)->second : nullptr;
+        }
+        if (hidden)
+            continue;
+        for (auto& c : b.cubes)
+            n += u32(c.uv.size());
+    }
+    return n;
 }
 
 inline std::pair<glm::vec3, glm::vec3> bounding_box(const mesh& m)
