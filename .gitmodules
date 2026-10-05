@@ -19,3 +19,6 @@
 [submodule "submodules/tinyobjloader"]
 	path = submodules/tinyobjloader
 	url = https://github.com/tinyobjloader/tinyobjloader
+[submodule "submodules/nlohmann_json"]
+	path = submodules/nlohmann_json
+	url = https://github.com/nlohmann/json
