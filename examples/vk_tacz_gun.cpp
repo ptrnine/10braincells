@@ -402,8 +402,8 @@ public:
         create_texture();
 
         load_model();
-        create_vertex_buffer();
-        create_index_buffer();
+        create_vertex_buffer(size_t(max_faces) * 4);
+        create_index_buffer(size_t(max_faces) * 6);
         create_uniform_buffers();
 
         descriptor_pool = dev.create_descriptor_pool(
@@ -832,23 +832,49 @@ private:
 
     /* The mesh is rebuilt on the CPU while an animation plays, so the
        vertex/index buffers live in host-visible memory and are updated in
-       place (safe: the frame loop waits for the previous frame's GPU work
-       before touching these buffers). Animated frames can have fewer faces
-       than the idle pose (a scale-0 channel hides its cubes), so the buffers
-       are sized to the absolute maximum: every UV-mapped face of every
-       bone not in a hidden-by-default subtree. */
-    void create_vertex_buffer() {
-        auto size = sizeof(vertex) * u32{max_faces} * 4;
-        vertex_b = create_buffer(size, vk::buffer_usage_flags::vertex_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+       place (safe: the frame loop blocks on the timeline semaphore after
+       every submit, so no GPU work can reference these buffers). The
+       initial capacity is max_face_count * 4 / * 6 vertices/indices - the
+       unclipped worst case. Clipped faces can emit MORE than 4 vertices
+       (a piece per clipped-away region), so when a rebuilt mesh exceeds the
+       capacity, ensure_mesh_capacity() recreates the buffers larger (the
+       per-face count stays bounded by tacz::kMaxClipTriangles, and animated
+       frames are usually SMALLER than the idle pose - a scale-0 channel
+       hides its cubes). */
+    void create_vertex_buffer(size_t cap) {
+        vertex_cap = std::max(cap, vertices.size());
+        auto size  = sizeof(vertex) * vertex_cap;
+        vertex_b   = create_buffer(size, vk::buffer_usage_flags::vertex_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
         vertex_data = vertex_b.memory.map_memory(0, size).value();
         std::memcpy(vertex_data, vertices.data(), sizeof(vertex) * vertices.size());
     }
 
-    void create_index_buffer() {
-        auto size = sizeof(u32) * u32{max_faces} * 6;
-        index_b = create_buffer(size, vk::buffer_usage_flags::index_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
+    void create_index_buffer(size_t cap) {
+        index_cap = std::max(cap, indices.size());
+        auto size  = sizeof(u32) * index_cap;
+        index_b   = create_buffer(size, vk::buffer_usage_flags::index_buffer, vk::memory_property_flags::host_visible | vk::memory_property_flags::host_coherent);
         index_data = index_b.memory.map_memory(0, size).value();
         std::memcpy(index_data, indices.data(), sizeof(u32) * indices.size());
+    }
+
+    /* Recreate the mapped mesh buffers when a rebuilt mesh no longer fits
+       them. Only safe to do where no GPU work is in flight: the frame loop
+       blocks on the timeline semaphore after every submit, and the initial
+       build precedes any submit. */
+    void ensure_mesh_capacity(size_t nv, size_t ni) {
+        if (nv <= vertex_cap && ni <= index_cap)
+            return;
+        if (!vertex_data)
+            return; /* initial sizing happens in create_*_buffer */
+        auto nv2 = std::max(nv, vertex_cap * 2 + 16);
+        auto ni2 = std::max(ni, index_cap * 2 + 16);
+        vertex_b.memory.unmap_memory();
+        index_b.memory.unmap_memory();
+        vertex_b = {};
+        index_b  = {};
+        create_vertex_buffer(nv2);
+        create_index_buffer(ni2);
+        log.info("mesh buffers grew to {} vertices / {} indices", nv2, ni2);
     }
 
     void create_depth_buffer() {
@@ -1109,6 +1135,7 @@ private:
             vertices.push_back(v);
         }
         indices = mov(mesh.indices);
+        ensure_mesh_capacity(vertices.size(), indices.size());
     }
 
     /* Advance the playing animation by dt and push the rebuilt mesh into the
@@ -1158,9 +1185,8 @@ private:
 
         rebuild_mesh();
 
-        // Absolute upper bound on the face count of any pose (see the buffer
-        // creation comment); the buffers are sized to this so animation
-        // frames can never overflow them.
+        // Upper bound on the face count of any pose (see the buffer
+        // creation comment); used for the initial buffer capacity.
         max_faces = tacz::max_face_count(geo);
 
         // Vanilla MC 1.12.2 idle main-hand transform (ItemRenderer.renderItemInFirstPerson,
@@ -1200,7 +1226,9 @@ private:
 
     std::vector<vertex> vertices;
     std::vector<u32> indices;
-    u32 max_faces{}; // tacz::max_face_count(geo): buffer sizing upper bound
+    u32 max_faces{};    // tacz::max_face_count(geo): initial buffer sizing bound
+    size_t vertex_cap{}; /* mapped vertex buffer capacity, in vertices */
+    size_t index_cap{};  /* mapped index buffer capacity, in indices */
     buffer_result vertex_b;
     buffer_result index_b;
     void*               vertex_data{}; /* mapped vertex buffer (host visible) */

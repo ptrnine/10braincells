@@ -148,7 +148,18 @@ struct mesh_vertex {
 struct mesh {
     std::vector<mesh_vertex> vertices;
     std::vector<u32> indices;
+    // Vertex count of each face: a face is a convex CCW polygon (4 for an
+    // unclipped quad, 3 or more for a clipped piece) whose fan triangles are the
+    // (v-2) index triples (base, base+k, base+k+1), k = 1..v-2, stored in
+    // order, 3 per face. (See the de-fighting clip pass in build_mesh.)
+    std::vector<u32> face_sizes;
 };
+
+// Per-face budget of the exact clip pass: a face whose clipped pieces would
+// need more than this many fan triangles is emitted unclipped (the level
+// scheme still resolves it; the pack's worst face needs 111). 3 verts per
+// triangle bounds the per-face vertex/index count.
+inline constexpr u32 kMaxClipTriangles = 128;
 
 namespace details
 {
@@ -238,6 +249,57 @@ inline constexpr std::array<face_def, 6> faces{
     face_def{std::array<u32, 4>{5u, 1u, 2u, 6u}, "west",  {1.f, 0.f, 0.f}},  // east
     face_def{std::array<u32, 4>{4u, 5u, 6u, 7u}, "south", {0.f, 0.f, 1.f}},  // south
 };
+
+// A point on a face's own plane in its 2D frame (s, t along frame axes u, v)
+// plus the face uv carried along for interpolation at clip intersections.
+struct p2 {
+    f32 s{}, t{}, u{}, v{};
+};
+
+// Sutherland-Hodgman clip of a CCW convex polygon by ONE half-plane: the
+// "outside" side (f <= 0) of the directed line a -> b, where a, b are two
+// consecutive corners of a CCW clipper quad (the clipper's interior is f >=
+// 0). Reversing (a, b) keeps the inside instead. The de-fighting pass uses
+// it to build the disjoint convex partition of P \ C described in
+// build_mesh.
+inline std::vector<p2> half_clip(const std::vector<p2>& poly, const p2& a, const p2& b) {
+    auto F = [&](const p2& p) -> f32 { return (b.s - a.s) * (p.t - a.t) - (b.t - a.t) * (p.s - a.s); };
+    std::vector<p2> out;
+    out.reserve(poly.size() + 1);
+    const u32 n = u32(poly.size());
+    for (u32 i = 0; i < n; ++i) {
+        const p2& pa = poly[i];
+        const p2& pb = poly[(i + 1) % n];
+        const f32 fa = F(pa), fb = F(pb);
+        const bool ina = fa <= 0.f, inb = fb <= 0.f;
+        if (ina)
+            out.push_back(pa);
+        if (ina != inb) {
+            const f32 tt = fa / (fa - fb);
+            out.push_back(p2{pa.s + tt * (pb.s - pa.s), pa.t + tt * (pb.t - pa.t), pa.u + tt * (pb.u - pa.u), pa.v + tt * (pb.v - pa.v)});
+        }
+        if (inb)
+            out.push_back(pb);
+    }
+    // drop consecutive duplicates (including wrap-around)
+    std::vector<p2> cl;
+    cl.reserve(out.size());
+    auto dist2 = [](const p2& a, const p2& b) -> f32 { const f32 dx = a.s - b.s, dy = a.t - b.t; return dx * dx + dy * dy; };
+    for (const auto& p : out)
+        if (cl.empty() || dist2(p, cl.back()) > 1e-12f)
+            cl.push_back(p);
+    if (cl.size() > 2 && dist2(cl.front(), cl.back()) <= 1e-12f)
+        cl.pop_back();
+    if (cl.size() < 3)
+        return {};
+    // drop degenerate slivers
+    f32 area = 0.f;
+    for (u32 i = 0; i < u32(cl.size()); ++i) {
+        const p2& pa = cl[i], &pb = cl[(i + 1) % u32(cl.size())];
+        area += pa.s * pb.t - pb.s * pa.t;
+    }
+    return glm::abs(area) < 1e-12f ? std::vector<p2>{} : std::move(cl);
+}
 } // namespace details
 
 inline geometry parse_geometry(const nlohmann::json& j)
@@ -812,6 +874,258 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             *face_dbg << "face " << i << " bone=" << faces[i].bone << " nrm=" << faces[i].nrm.x << "," << faces[i].nrm.y << "," << faces[i].nrm.z << " d=" << faces[i].d << " p0=" << p0.x << "," << p0.y << "," << p0.z << "\n";
         }
 
+    // ------------------------------------------------------------------
+    // De-fighting pass, part 1: EXACT CLIPPING. The level offset below is a
+    // depth-buffer TIE-BREAKER: it only decides the winner between two faces
+    // that still overlap on screen, and its per-level nudge can eat into
+    // (partially invert) the true depth gap of near-coplanar faces. A
+    // stronger guarantee is to make the faces not overlap at all: every
+    // farther face is clipped exactly against the nearer (near-)coplanar
+    // same-orientation faces in 2D on the shared plane, so no pixel is ever
+    // covered by two faces of the same clip class and the depth test is
+    // never asked to break a tie within the class.
+    //
+    // The difference P \ C of two convex polygons is not convex (a notch),
+    // so it is computed from the clipper's CCW edge half-planes
+    // (C = intersect_e H_e) with the DISJOINT partition
+    //     P \ C = union_k (P \ H_k \cap H_k^c),   H_k^c = intersect_{m < k} H_m
+    // i.e. each point of P \ C is assigned to the piece of its FIRST
+    // violated edge index. Every piece is still a convex polygon
+    // (an intersection of half-planes) and fan-triangulates trivially, and
+    // the pieces are mutually disjoint (they touch only at boundaries), so
+    // no two faces - not even two pieces of one face - share a pixel.
+    // A fully covered face is
+    // dropped entirely (nearer faces hide it from every view: same outward
+    // normal => both face the eye or neither does).
+    //
+    // Pair eligibility (normals agree to 0.29 deg, |d_a - d_b| < kClipGap):
+    //   * coplanar (|d_a - d_b| < 1e-5): the earlier face in draw order is
+    //     in front (gl_LESS: first drawn wins the exact depth tie), so the
+    //     later face is clipped against the earlier one.
+    //   * distinct planes: the face in front everywhere clips the other.
+    //     The plane separation is linear over each quad, so the four
+    //     corners of each give the gap's min/max; a is in front of b
+    //     everywhere iff every corner of b is behind a's plane AND every
+    //     corner of a is in front of b's plane (both directions must hold:
+    //     a crossing pair also has some corners behind on each side). If
+    //     the planes CROSS within the extents, the truly closer surface
+    //     flips pixel-by-pixel: that is real geometry, not z-fighting, and
+    //     the depth test resolves it - the pair is skipped.
+    //
+    // Clipping is view-independent and EXACT for parallel planes: along
+    // any eye ray through the overlap the nearer plane is hit first, at
+    // every camera angle (mouse-look included), so removing the farther
+    // face's covered region cannot change the visible image. The clipped
+    // pieces keep the face's own plane, its uv mapping and its CCW winding
+    // (inherited from the quad), so invariants 1-4 of the level pass
+    // (winding, per-face fresh vertices, vertex order, monotone levels)
+    // all hold unchanged: pieces are emitted where the original quad would
+    // be, with the original face's level.
+    constexpr f32 kClipGap = 0.05f; // max plane offset (blocks) for clip pairs
+
+    // Per-face 2D frame on its own plane (u, v orthonormal, u x v = nrm),
+    // built lazily. Faces are CCW from the outside by construction, so the
+    // signed (s, t) area of the quad is positive for a valid frame.
+    struct frame2d {
+        glm::vec3 u{}, v{};
+        bool ok{};
+    };
+    std::vector<frame2d> frames(faces.size());
+    auto make_frame = [&](u32 i) -> frame2d& {
+        frame2d& fr = frames[i];
+        if (fr.ok)
+            return fr;
+        const glm::vec3& n = faces[i].nrm;
+        const f32 ax = glm::abs(n.x), ay = glm::abs(n.y), az = glm::abs(n.z);
+        const glm::vec3 ref = (ax <= ay && ax <= az) ? glm::vec3{1.f, 0.f, 0.f}
+                            : (ay <= az                 ? glm::vec3{0.f, 1.f, 0.f}
+                                                       : glm::vec3{0.f, 0.f, 1.f});
+        fr.u = glm::normalize(glm::cross(n, ref));
+        fr.v = glm::cross(n, fr.u);
+        f32 area = 0.f;
+        for (u32 k = 0; k < 4; ++k) {
+            const glm::vec3& pa = faces[i].p[k];
+            const glm::vec3& pb = faces[i].p[(k + 1) % 4];
+            area += glm::dot(pa, fr.u) * glm::dot(pb, fr.v) - glm::dot(pb, fr.u) * glm::dot(pa, fr.v);
+        }
+        fr.ok = area > 1e-9f;
+        return fr;
+    };
+
+    struct aabb {
+        glm::vec3 mn{}, mx{};
+    };
+    std::vector<aabb> bbs(faces.size());
+    for (u32 i = 0; i < faces.size(); ++i) {
+        bbs[i].mn = bbs[i].mx = faces[i].p[0];
+        for (u32 k = 1; k < 4; ++k) {
+            bbs[i].mn = glm::min(bbs[i].mn, faces[i].p[k]);
+            bbs[i].mx = glm::max(bbs[i].mx, faces[i].p[k]);
+        }
+    }
+
+    // Clip classes: same outward normal (0.29 deg) AND plane offset within
+    // kClipGap of the class representative (no quantized key: f32 noise in
+    // per-face normals straddles any quantization boundary, as for the
+    // subgroup pass below). Faces are only clipped within their class.
+    struct clip_class {
+        glm::vec3 nrm{};
+        f32 d{};
+        std::vector<u32> idx;
+    };
+    std::vector<clip_class> classes;
+    classes.reserve(faces.size());
+    for (u32 i = 0; i < faces.size(); ++i) {
+        clip_class* cc = nullptr;
+        for (auto& c : classes) {
+            if (glm::dot(c.nrm, faces[i].nrm) > 0.99999f && glm::abs(c.d - faces[i].d) < kClipGap) {
+                cc = &c;
+                break;
+            }
+        }
+        if (!cc) {
+            classes.push_back(clip_class{});
+            cc     = &classes.back();
+            cc->nrm = faces[i].nrm;
+            cc->d   = faces[i].d;
+        }
+        cc->idx.push_back(i);
+    }
+
+    // Which faces clip which: for every eligible pair, the in-front face is
+    // recorded as a clipper of the farther one.
+    std::vector<std::vector<u32>> clippers(faces.size());
+    auto d_rank = [&](u32 i) -> sys::i32 { return sys::i32(glm::floor(faces[i].d / 1e-6f + 0.5f)); };
+    auto earlier = [&](u32 a, u32 b) {
+        const sys::i32 ka = d_rank(a), kb = d_rank(b);
+        return ka != kb ? ka > kb : a < b; // (d descending, draw order ascending)
+    };
+    for (auto& c : classes) {
+        auto& idxs = c.idx;
+        std::sort(idxs.begin(), idxs.end(), [&](u32 a, u32 b) { return earlier(a, b); });
+        for (size_t ia = 0; ia < idxs.size(); ++ia) {
+            const u32 a = idxs[ia];
+            for (size_t ib = ia + 1; ib < idxs.size(); ++ib) {
+                const u32 b  = idxs[ib];
+                if (faces[a].d - faces[b].d > kClipGap)
+                    break; // sorted by d descending: later ones are farther apart
+                const aabb& A = bbs[a], &B = bbs[b];
+                // 3D AABB overlap (slacked: coplanar faces touch in the
+                // normal axis) is necessary for 2D overlap on the plane.
+                if (glm::min(A.mx.x, B.mx.x) - glm::max(A.mn.x, B.mn.x) <= -1e-9f ||
+                    glm::min(A.mx.y, B.mx.y) - glm::max(A.mn.y, B.mn.y) <= -1e-9f ||
+                    glm::min(A.mx.z, B.mx.z) - glm::max(A.mn.z, B.mn.z) <= -1e-9f)
+                    continue;
+                if (faces[a].d - faces[b].d < 1e-5f) {
+                    clippers[b].push_back(a); // coplanar: a precedes b in draw order
+                    continue;
+                }
+                // Which face is in front? f_a(x) = dot(n_a, x) - d_a > 0 means
+                // x is on the eye side of a's plane (closer to the eye). The
+                // gap is linear over each quad, so the corners suffice. All
+                // four extrema are needed: a pair whose corners all lie on
+                // the "correct" side of both planes can still be a crossing
+                // pair (the corner min/max of each side must be checked).
+                f32 smin = 1e30f, smax = -1e30f; // f_a at b's corners
+                for (u32 k = 0; k < 4; ++k) {
+                    const f32 f = glm::dot(faces[a].nrm, faces[b].p[k]) - faces[a].d;
+                    smin        = glm::min(smin, f);
+                    smax        = glm::max(smax, f);
+                }
+                f32 tmin = 1e30f, tmax = -1e30f; // f_b at a's corners
+                for (u32 k = 0; k < 4; ++k) {
+                    const f32 f = glm::dot(faces[b].nrm, faces[a].p[k]) - faces[b].d;
+                    tmin        = glm::min(tmin, f);
+                    tmax        = glm::max(tmax, f);
+                }
+                if (smax < 1e-6f && tmin > -1e-6f)
+                    clippers[b].push_back(a); // a in front of b everywhere
+                else if (smin > -1e-6f && tmax < 1e-6f)
+                    clippers[a].push_back(b); // b in front of a everywhere
+                // else the planes cross within the extents: real geometry,
+                // left to the depth test (never clipped).
+            }
+        }
+    }
+
+    // Clip each face that has clippers. Result: convex pieces (2D, on the
+    // face's own plane) in draw-safe order; empty optional = unclipped,
+    // empty piece list = fully hidden face.
+    std::vector<std::optional<std::vector<std::vector<details::p2>>>> clipped(faces.size());
+    for (u32 i = 0; i < faces.size(); ++i) {
+        if (clippers[i].empty())
+            continue;
+        frame2d& fr = make_frame(i);
+        if (!fr.ok)
+            continue; // broken winding: leave the face untouched
+        auto to2d = [&](const raw_face& rf) -> std::vector<details::p2> {
+            std::vector<details::p2> q;
+            q.reserve(4);
+            for (u32 k = 0; k < 4; ++k)
+                q.push_back(details::p2{glm::dot(rf.p[k], fr.u), glm::dot(rf.p[k], fr.v), rf.uv[k].x, rf.uv[k].y});
+            return q;
+        };
+        // Clipper quads projected onto i's plane along the eye rays (the
+        // eye is at the origin): exact for any pair of near-parallel planes,
+        // so the 2D shadow has the exact pixel coverage of the clipper at
+        // every camera angle. The eye is on the outward side of both planes,
+        // so the projection scale d/(n . x) stays positive and the CCW
+        // winding is preserved.
+        auto order = clippers[i];
+        std::sort(order.begin(), order.end(), [&](u32 a, u32 b) { return earlier(a, b); });
+        std::vector<std::vector<details::p2>> cps;
+        cps.reserve(order.size());
+        for (u32 j : order) {
+            const raw_face& rf = faces[j];
+            std::vector<details::p2> q;
+            q.reserve(4);
+            for (u32 k = 0; k < 4; ++k) {
+                const glm::vec3& B  = rf.p[k];
+                const glm::vec3     pp = (faces[i].d / glm::dot(faces[i].nrm, B)) * B; // eye ray through B hits plane i
+                q.push_back(details::p2{glm::dot(pp, fr.u), glm::dot(pp, fr.v), 0.f, 0.f});
+            }
+            cps.push_back(std::move(q));
+        }
+
+        std::vector<std::vector<details::p2>> pieces = {to2d(faces[i])};
+        bool over = false;
+        for (const auto& cp : cps) {
+            std::vector<std::vector<details::p2>> next;
+            for (auto& piece : pieces) {
+                // disjoint partition of piece \ clipper: point -> piece of its
+                // first violated edge index (see the pass comment above)
+                for (u32 k = 0; k < 4; ++k) {
+                    auto q = details::half_clip(piece, cp[k], cp[(k + 1) % 4]); // \ H_k
+                    for (u32 m = 0; m < k && !q.empty(); ++m)
+                        q = details::half_clip(q, cp[(m + 1) % 4], cp[m]); //   ∩ H_m
+                    if (!q.empty())
+                        next.push_back(std::move(q));
+                }
+            }
+            pieces = std::move(next);
+            if (pieces.empty())
+                break;
+            u32 tris = 0;
+            for (const auto& piece : pieces)
+                tris += u32(piece.size() - 2);
+            if (tris > kMaxClipTriangles) {
+                over = true; // too many pieces: keep the face whole
+                break;
+            }
+        }
+        if (!over)
+            clipped[i] = std::move(pieces);
+    }
+    if (face_dbg)
+        for (u32 i = 0; i < faces.size(); ++i)
+            if (clipped[i]) {
+                u32 nv2 = 0;
+                for (const auto& p : *clipped[i])
+                    nv2 += u32(p.size());
+                *face_dbg << "  clip face " << i << " bone=" << faces[i].bone << " clippers=" << clippers[i].size() << " pieces=" << clipped[i]->size() << " verts=" << nv2
+                          << (clipped[i]->empty() ? " (fully hidden)" : "") << "\n";
+            }
+
     struct subgroup {
         glm::vec3     nrm{};
         f32           d{};
@@ -853,10 +1167,28 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         for (u32 rank = 0; rank < idxs.size(); ++rank) {
             const raw_face& rf  = faces[idxs[rank]];
             const f32        lvl = f32(rank + 1);
-            const u32        base = u32(out.vertices.size());
-            for (u32 q = 0; q < 4; ++q)
-                out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], lvl, s.nrm});
-            out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+            if (clipped[idxs[rank]]) {
+                // Emit the clip pieces where the quad would go, fan
+                // triangulated, with the original face's level and normal.
+                // 3D positions are reconstructed on the face's own plane
+                // (d * n + s * u + t * v), which snaps f32 wobble off the
+                // plane; unwound pieces are CCW, so culling is unchanged.
+                const frame2d& fr = frames[idxs[rank]];
+                for (const auto& piece : *clipped[idxs[rank]]) {
+                    const u32 pb = u32(out.vertices.size());
+                    for (const auto& pt : piece)
+                        out.vertices.push_back(mesh_vertex{rf.d * rf.nrm + pt.s * fr.u + pt.t * fr.v, glm::vec2{pt.u, pt.v}, lvl, s.nrm});
+                    for (u32 k = 1; k + 1 < u32(piece.size()); ++k)
+                        out.indices.insert(out.indices.end(), {pb, pb + k, pb + k + 1});
+                    out.face_sizes.push_back(u32(piece.size()));
+                }
+            } else {
+                const u32 base = u32(out.vertices.size());
+                for (u32 q = 0; q < 4; ++q)
+                    out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], lvl, s.nrm});
+                out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+                out.face_sizes.push_back(4);
+            }
         }
     }
     return out;
@@ -889,6 +1221,7 @@ inline u32 max_face_count(const geometry& geo) {
     }
     return n;
 }
+
 
 inline std::pair<glm::vec3, glm::vec3> bounding_box(const mesh& m)
 {
