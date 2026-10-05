@@ -40,6 +40,10 @@ add_executable(vk_perspective_camera vk_perspective_camera.cpp)
 target_link_libraries(vk_perspective_camera glm::glm self::src glfw vulkan stb::stb tinyobjloader::tinyobjloader)
 add_dependencies(vk_perspective_camera vulkan_api_target)
 
+add_executable(vk_tacz_gun vk_tacz_gun.cpp)
+target_link_libraries(vk_tacz_gun glm::glm self::src glfw vulkan stb::stb nlohmann::json)
+add_dependencies(vk_tacz_gun vulkan_api_target)
+
 add_executable(coro_test ./coro_test.cpp)
 target_link_libraries(coro_test PRIVATE self::src uring)
 add_dependencies(coro_test io_uring_cg)

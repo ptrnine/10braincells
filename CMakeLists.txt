@@ -75,6 +75,11 @@ set_target_properties(stb::stb PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/submodules/stb"
 )
 
+add_library(nlohmann::json INTERFACE IMPORTED)
+set_target_properties(nlohmann::json PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/submodules/nlohmann_json/include"
+)
+
 set(_cxx_flags
     -fno-strict-aliasing
     -Wall
