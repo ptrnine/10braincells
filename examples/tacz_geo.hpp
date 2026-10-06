@@ -738,9 +738,14 @@ inline std::map<std::string, bone_anim> sample_animation(const keyframe_anim& a,
     return out;
 }
 
-// face_dbg: if non-null, build_mesh writes one line per collected face:
-// "face <draw order> nq=<...> dq=<...>"
-inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_anim>& anims = {}, std::ostream* face_dbg = nullptr)
+// defight: when true (default), runs the de-fighting pass (exact clip +
+// tight near-coplanar level grouping) to eliminate z-fighting; when false,
+// emits every face as a whole quad at its natural depth (level 0, no offset,
+// no clipping) and lets the depth buffer (gl_LESS) break ties the vanilla MC
+// way. The de-fighting pass is the per-frame cost while animations rebuild
+// the mesh, so false is the fast path.
+// face_dbg: if non-null, build_mesh writes one line per collected face.
+inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_anim>& anims = {}, bool defight = true, std::ostream* face_dbg = nullptr)
 {
     mesh out;
 
@@ -901,6 +906,7 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             *face_dbg << "face " << i << " bone=" << faces[i].bone << " nrm=" << faces[i].nrm.x << "," << faces[i].nrm.y << "," << faces[i].nrm.z << " d=" << faces[i].d << " p0=" << p0.x << "," << p0.y << "," << p0.z << "\n";
         }
 
+    if (defight) {
     // ------------------------------------------------------------------
     // De-fighting pass, part 1: EXACT CLIPPING. The level offset below is a
     // depth-buffer TIE-BREAKER: it only decides the winner between two faces
@@ -1256,6 +1262,21 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
                 out.face_sizes.push_back(4);
             }
+        }
+    }
+    } else {
+        // De-fighting disabled: emit every face as a whole quad at its
+        // natural depth (level 0 -> no normal offset in the vertex shader, no
+        // clipping). Exact-coplanar ties are broken by the depth buffer
+        // (gl_LESS: first drawn wins), matching vanilla MC. This is the fast
+        // path; it trades away the de-fighting for speed.
+        for (u32 i = 0; i < faces.size(); ++i) {
+            const raw_face& rf  = faces[i];
+            const u32        base = u32(out.vertices.size());
+            for (u32 q = 0; q < 4; ++q)
+                out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], 0.f, rf.nrm});
+            out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+            out.face_sizes.push_back(4);
         }
     }
     return out;
