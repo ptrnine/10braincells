@@ -82,6 +82,8 @@
 #include <optional>
 #include <set>
 #include <ostream>
+#include <unordered_map>
+#include <unordered_set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -161,6 +163,11 @@ struct mesh {
 // scheme still resolves it; the pack's worst face needs 111). 3 verts per
 // triangle bounds the per-face vertex/index count.
 inline constexpr u32 kMaxClipTriangles = 128;
+// Max clippers a face is clipped against (nearest first). The disjoint
+// partition is O(4^k) in the clipper count, so a hard cap keeps per-frame
+// rebuilds (during animations) fast. Nearer planes win the overlap, so the
+// nearest clippers cover the significant z-fight.
+inline constexpr u32 kMaxClippers = 32; // above the observed max (12); the triangle cap bounds the worst case
 
 namespace details
 {
@@ -994,16 +1001,23 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
     // the hash considers every overlapping near-coplanar pair.)
     constexpr f32 kCell = 0.25f; // blocks per spatial-hash cell
     auto cell_of = [](f32 x) -> sys::i32 { return sys::i32(std::floor(x / kCell)); };
-    std::map<std::array<sys::i32, 3>, std::vector<u32>> grid;
+    // Encode a (ix,iy,iz) cell into a u64 so the grid can be a flat hash map
+    // (a tree-based std::map over ~100k pair lookups was a big per-frame cost
+    // while animations rebuild the mesh every frame).
+    auto cell_key = [](sys::i32 ix, sys::i32 iy, sys::i32 iz) -> sys::u64 {
+        return (sys::u64)(sys::u32)(ix + 512) << 40 | (sys::u64)(sys::u32)(iy + 512) << 20 | (sys::u64)(sys::u32)(iz + 512);
+    };
+    std::unordered_map<sys::u64, std::vector<u32>> grid;
     for (u32 i = 0; i < faces.size(); ++i) {
         const aabb& B = bbs[i];
         for (sys::i32 ix = cell_of(B.mn.x); ix <= cell_of(B.mx.x); ++ix)
             for (sys::i32 iy = cell_of(B.mn.y); iy <= cell_of(B.mx.y); ++iy)
                 for (sys::i32 iz = cell_of(B.mn.z); iz <= cell_of(B.mx.z); ++iz)
-                    grid[std::array<sys::i32, 3>{ix, iy, iz}].push_back(i);
+                    grid[cell_key(ix, iy, iz)].push_back(i);
     }
 
     u32 dbg_coplanar = 0, dbg_afront = 0, dbg_bfront = 0, dbg_skip = 0;
+    u32 dbg_max_clip = 0, dbg_max_pieces = 0, dbg_max_halfclips = 0; // per-face maxima
     std::vector<std::vector<u32>> clippers(faces.size());
     // Union-find over TIGHT near-coplanar (same normal, |dA-dB| < 2e-5,
     // AABB-overlapping) faces. The connected components become the LEVEL
@@ -1037,27 +1051,30 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         const sys::i32 ka = d_rank(a), kb = d_rank(b);
         return ka != kb ? ka > kb : a < b;
     };
-    std::set<sys::u64> seen; // dedupe: a pair can sit in several shared cells
+    std::unordered_set<sys::u64> seen; // dedupe: a pair can sit in several shared cells
     for (u32 i = 0; i < faces.size(); ++i) {
         const aabb& A = bbs[i];
         for (sys::i32 ix = cell_of(A.mn.x); ix <= cell_of(A.mx.x); ++ix)
             for (sys::i32 iy = cell_of(A.mn.y); iy <= cell_of(A.mx.y); ++iy)
                 for (sys::i32 iz = cell_of(A.mn.z); iz <= cell_of(A.mx.z); ++iz) {
-                    auto it = grid.find(std::array<sys::i32, 3>{ix, iy, iz});
+                    auto it = grid.find(cell_key(ix, iy, iz));
                     if (it == grid.end()) continue;
                     for (u32 j : it->second) {
                         if (j <= i) continue;
-                        const sys::u64 key = (sys::u64)i << 32 | sys::u64(j);
-                        if (!seen.insert(key).second) continue;
                         const aabb& B = bbs[j];
                         // 3D AABB overlap is necessary for 2D overlap on the
-                        // shared plane.
-                        if (glm::min(A.mx.x, B.mx.x) - glm::max(A.mn.x, B.mn.x) <= -1e-9f ||
-                            glm::min(A.mx.y, B.mx.y) - glm::max(A.mn.y, B.mn.y) <= -1e-9f ||
-                            glm::min(A.mx.z, B.mx.z) - glm::max(A.mn.z, B.mn.z) <= -1e-9f)
+                        // shared plane. Inline comparisons (glm::min/max
+                        // didn't inline in the hot loop; this runs millions of
+                        // times per frame while animations rebuild the mesh).
+                        if (A.mn.x > B.mx.x || A.mx.x < B.mn.x || A.mn.y > B.mx.y ||
+                            A.mx.y < B.mn.y || A.mn.z > B.mx.z || A.mx.z < B.mn.z)
                             continue;
-                        if (glm::dot(faces[i].nrm, faces[j].nrm) < 0.99999f) continue;
-                        const f32 dd = glm::abs(faces[i].d - faces[j].d);
+                        const auto& ni = faces[i].nrm;
+                        const auto& nj = faces[j].nrm;
+                        if (ni.x * nj.x + ni.y * nj.y + ni.z * nj.z < 0.99999f) continue;
+                        const sys::u64 key = (sys::u64)i << 32 | sys::u64(j);
+                        if (!seen.insert(key).second) continue; // dedupe (after the cheap prefilters)
+                        const f32 dd = faces[i].d > faces[j].d ? faces[i].d - faces[j].d : faces[j].d - faces[i].d;
                         if (dd < 2e-5f)
                             unite(i, j); // same level group (tight near-coplanar pair)
                         if (dd >= kClipGap) continue;
@@ -1072,15 +1089,17 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                         // corners suffice; all four extrema are checked.
                         f32 smin = 1e30f, smax = -1e30f; // f_i at j's corners
                         for (u32 k = 0; k < 4; ++k) {
-                            const f32 f = glm::dot(faces[i].nrm, faces[j].p[k]) - faces[i].d;
-                            smin        = glm::min(smin, f);
-                            smax        = glm::max(smax, f);
+                            const auto& c = faces[j].p[k];
+                            const f32    f = ni.x * c.x + ni.y * c.y + ni.z * c.z - faces[i].d;
+                            smin         = f < smin ? f : smin;
+                            smax         = f > smax ? f : smax;
                         }
                         f32 tmin = 1e30f, tmax = -1e30f; // f_j at i's corners
                         for (u32 k = 0; k < 4; ++k) {
-                            const f32 f = glm::dot(faces[j].nrm, faces[i].p[k]) - faces[j].d;
-                            tmin        = glm::min(tmin, f);
-                            tmax        = glm::max(tmax, f);
+                            const auto& c = faces[i].p[k];
+                            const f32    f = nj.x * c.x + nj.y * c.y + nj.z * c.z - faces[j].d;
+                            tmin         = f < tmin ? f : tmin;
+                            tmax         = f > tmax ? f : tmax;
                         }
                         if (smax < 1e-6f && tmin > -1e-6f) {
                             clippers[j].push_back(i); // i in front of j everywhere
@@ -1096,9 +1115,6 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                     }
                 }
     }
-    if (face_dbg)
-        *face_dbg << "[clip-debug] coplanar=" << dbg_coplanar << " afront=" << dbg_afront << " bfront=" << dbg_bfront << " skip(crossing)=" << dbg_skip << "\n";
-
     // Clip each face that has clippers. Result: convex pieces (2D, on the
     // face's own plane) in draw-safe order; empty optional = unclipped,
     // empty piece list = fully hidden face.
@@ -1124,6 +1140,8 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         // winding is preserved.
         auto order = clippers[i];
         std::sort(order.begin(), order.end(), [&](u32 a, u32 b) { return earlier(a, b); });
+        if (order.size() > kMaxClippers)
+            order.resize(kMaxClippers); // nearest first: keep the cost bounded
         std::vector<std::vector<details::p2>> cps;
         cps.reserve(order.size());
         for (u32 j : order) {
@@ -1138,7 +1156,9 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             cps.push_back(std::move(q));
         }
 
+        dbg_max_clip = glm::max(dbg_max_clip, u32(cps.size()));
         std::vector<std::vector<details::p2>> pieces = {to2d(faces[i])};
+        u32 face_halfclips = 0;
         bool over = false;
         for (const auto& cp : cps) {
             std::vector<std::vector<details::p2>> next;
@@ -1147,8 +1167,11 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 // first violated edge index (see the pass comment above)
                 for (u32 k = 0; k < 4; ++k) {
                     auto q = details::half_clip(piece, cp[k], cp[(k + 1) % 4]); // \ H_k
-                    for (u32 m = 0; m < k && !q.empty(); ++m)
+                    ++face_halfclips;
+                    for (u32 m = 0; m < k && !q.empty(); ++m) {
                         q = details::half_clip(q, cp[(m + 1) % 4], cp[m]); //   ∩ H_m
+                        ++face_halfclips;
+                    }
                     if (!q.empty())
                         next.push_back(std::move(q));
                 }
@@ -1156,6 +1179,7 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             pieces = std::move(next);
             if (pieces.empty())
                 break;
+            dbg_max_pieces = glm::max(dbg_max_pieces, u32(pieces.size()));
             u32 tris = 0;
             for (const auto& piece : pieces)
                 tris += u32(piece.size() - 2);
@@ -1164,10 +1188,11 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 break;
             }
         }
+        dbg_max_halfclips = glm::max(dbg_max_halfclips, face_halfclips);
         if (!over)
             clipped[i] = std::move(pieces);
     }
-    if (face_dbg)
+    if (face_dbg) {
         for (u32 i = 0; i < faces.size(); ++i)
             if (clipped[i]) {
                 u32 nv2 = 0;
@@ -1176,6 +1201,9 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 *face_dbg << "  clip face " << i << " bone=" << faces[i].bone << " clippers=" << clippers[i].size() << " pieces=" << clipped[i]->size() << " verts=" << nv2
                           << (clipped[i]->empty() ? " (fully hidden)" : "") << "\n";
             }
+        *face_dbg << "[clip-debug] coplanar=" << dbg_coplanar << " afront=" << dbg_afront << " bfront=" << dbg_bfront << " skip(crossing)=" << dbg_skip
+                 << " max_clippers/face=" << dbg_max_clip << " max_pieces/face=" << dbg_max_pieces << " max_halfclips/face=" << dbg_max_halfclips << "\n";
+    }
 
     // Level groups = connected components of the tight near-coplanar graph
     // (the union-find above). Within a component every face is
