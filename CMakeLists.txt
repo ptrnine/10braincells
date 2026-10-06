@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 26)
 
 option(ENABLE_TESTS "Enable tests" ON)
 option(ENABLE_EXAMPLES "Enable examples" ON)
+option(ENABLE_BENCH "Enable benchmarks" ON)
 option(ENABLE_ASAN "Enable address sanitizer" OFF)
 option(BUILD_3RD "Build 3rd party libraries only" OFF)
 set(VULKAN_API "/usr/share/vulkan/registry/vk.xml")
@@ -145,4 +146,8 @@ endif()
 
 if(ENABLE_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(ENABLE_BENCH)
+    add_subdirectory(bench)
 endif()
