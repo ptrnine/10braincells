@@ -6,10 +6,12 @@
 #include <string>
 
 #include <core/array.hpp>
+#include <core/concepts/assign.hpp>
 #include <core/concepts/ctor.hpp>
 #include <core/concepts/trivial_dtor.hpp>
 #include <core/construct_at.hpp>
 #include <core/exception.hpp>
+#include <core/hash.hpp>
 #include <core/macros.hpp>
 #include <core/traits/add_const.hpp>
 #include <core/traits/ca_traits.hpp>
@@ -53,8 +55,9 @@ private:
 template <typename BucketT>
 class robin_map_iterator {
 public:
-    using K = decltype(declval<BucketT>().key());
-    using V = remove_ref<decltype(declval<BucketT>().value())>;
+    using K           = decltype(declval<BucketT>().key());
+    using const_key_t = decltype(declval<const BucketT>().key());
+    using V           = remove_ref<decltype(declval<BucketT>().value())>;
 
     constexpr robin_map_iterator(): _ptr(nullptr) {}
     constexpr robin_map_iterator(BucketT* ptr): _ptr(ptr) {
@@ -79,8 +82,9 @@ public:
         return {_ptr->key(), _ptr->value()};
     }
 
-    constexpr K key() const {
-        return _ptr->key();
+    constexpr const_key_t key() const {
+        // Const access so that non-trivial keys are not copied out.
+        return static_cast<const BucketT*>(_ptr)->key();
     }
 
     constexpr auto& value(this auto&& it) {
@@ -98,14 +102,19 @@ private:
 };
 
 struct robin_map_bucket_ca_traits {
+    // Keys stored in the bucket itself (generic keys) are materialized via
+    // construct_key() into an empty bucket and transferred via copy_key() into
+    // an occupied one; keys stored in the header word are copied with the header.
     constexpr static void cc(auto&& it, const auto& bucket) {
         if (!bucket.empty()) {
+            it.construct_key(bucket);
             it.header = bucket.header;
             it.construct_value(bucket.value());
         }
     }
     constexpr static void mc(auto&& it, auto&& bucket) {
         if (!bucket.empty()) {
+            it.construct_key(fwd(bucket));
             it.header = bucket.header;
             it.construct_value(mov(bucket.value()));
             bucket.destroy();
@@ -118,12 +127,16 @@ struct robin_map_bucket_ca_traits {
         it.header = bucket.header;
 
         if (it_empty == bucket_empty) {
-            if (!it_empty)
+            if (!it_empty) {
+                it.copy_key(fwd(bucket));
                 it.value() = fwd(bucket).value();
+            }
         }
         else {
-            if (it_empty)
+            if (it_empty) {
+                it.construct_key(fwd(bucket));
                 it.construct_value(fwd(bucket).value());
+            }
             else
                 it.destroy();
         }
@@ -142,9 +155,189 @@ struct robin_map_bucket_ca_traits {
 
 using robin_map_distance_t = u16;
 
+/*
+ * Generic keys: keys that do not fit in the header word (neither pointers
+ * nor small integrals) are stored in a separate `_key` member and hashed
+ * via core::hash (hash_impl<K>). The header carries the distance plus live
+ * flags for the key and the value.
+ *
+ * Requirements for K: copyable, comparable via `==`. Neither K nor V needs
+ * to be default-constructible: the key and value live in unions and are
+ * materialized (placement new) only while their live bit is set; an empty
+ * bucket holds neither and destroy() destroys exactly the live members.
+ */
 template <typename K, typename V>
 struct robin_map_bucket_base {
-    /* TODO: implement this */
+    using const_key_t = const K&;
+
+    // Header layout: bits 47:32 hold the distance (0 => empty bucket), bit
+    // 15 marks the key live, bit 14 marks the value live. The live bits let
+    // a bucket carry a header (e.g. the map's sentinel bucket, which
+    // terminates the iterator's empty-bucket skip) without holding a live
+    // key or value.
+    static constexpr u64 key_live_mask   = 1ull << 15;
+    static constexpr u64 value_live_mask = 1ull << 14;
+    static constexpr u64 live_mask       = key_live_mask | value_live_mask;
+
+    // The key does not travel with the header word and memberwise copy/move
+    // would clobber live keys/values, so the special members are provided
+    // explicitly (the ca_traits wrapper still intercepts them for
+    // non-trivial values via its Traits path).
+    constexpr robin_map_bucket_base() = default;
+
+    constexpr robin_map_bucket_base(u16 distance, const_key_t key, auto&&... args) {
+        init_header(distance, key);
+        construct_value(fwd(args)...);
+    }
+
+    constexpr ~robin_map_bucket_base() {
+        destroy();
+    }
+
+    constexpr robin_map_bucket_base(const robin_map_bucket_base& other) {
+        header = other.header;
+        if (other.key_live())
+            construct_at(&_key, other._key);
+        if (other.value_live())
+            construct_at(&_value, other._value);
+    }
+
+    constexpr robin_map_bucket_base(robin_map_bucket_base&& other) {
+        header = other.header;
+        if (other.key_live())
+            construct_at(&_key, fwd(other)._key);
+        if (other.value_live())
+            construct_at(&_value, fwd(other)._value);
+    }
+
+    template <typename Other>
+    constexpr robin_map_bucket_base& assign(Other&& other) {
+        auto const it_key_live   = key_live();
+        auto const it_value_live = value_live();
+
+        header = other.header;
+
+        if (it_key_live == other.key_live()) {
+            if (it_key_live)
+                _key = fwd(other)._key;
+        }
+        else if (it_key_live) {
+            if constexpr (!trivial_dtor<K>)
+                _key.~K();
+        }
+        else
+            construct_at(&_key, fwd(other)._key);
+
+        if (it_value_live == other.value_live()) {
+            if (it_value_live)
+                _value = fwd(other)._value;
+        }
+        else if (it_value_live) {
+            if constexpr (!trivial_dtor<V>)
+                _value.~V();
+        }
+        else
+            construct_at(&_value, fwd(other)._value);
+
+        return *this;
+    }
+
+    constexpr robin_map_bucket_base& operator=(const robin_map_bucket_base& other) {
+        return assign(other);
+    }
+
+    constexpr robin_map_bucket_base& operator=(robin_map_bucket_base&& other) {
+        return assign(fwd(other));
+    }
+
+    constexpr void init_header(u16 distance, const_key_t key) {
+        construct_at(&_key, key);
+        header = (u64(distance) << 32) | key_live_mask | (header & value_live_mask);
+    }
+
+    constexpr bool empty() const {
+        return !header;
+    }
+
+    constexpr u16 distance() const {
+        return u16(header >> 32);
+    }
+
+    constexpr bool key_live() const {
+        return header & key_live_mask;
+    }
+
+    constexpr bool value_live() const {
+        return header & value_live_mask;
+    }
+
+    constexpr K key() {
+        return _key;
+    }
+
+    constexpr const K& key() const {
+        return _key;
+    }
+
+    constexpr void set_distance(u16 value) {
+        header = (u64(value) << 32) | (header & live_mask);
+    }
+
+    constexpr void set_key(const_key_t value) {
+        _key = value;
+    }
+
+    // Materialize the key in this bucket from another bucket (copy for
+    // lvalues, move for rvalues). The header-key specialization provides a
+    // no-op instead (its key travels with the header word).
+    constexpr void construct_key(auto&& other) {
+        construct_at(&_key, fwd(other)._key);
+        header |= key_live_mask;
+    }
+
+    // Transfer the key from another bucket into this (key-live) bucket (copy
+    // for lvalues, move for rvalues).
+    constexpr void copy_key(auto&& other) {
+        _key = fwd(other)._key;
+    }
+
+    constexpr auto&& value(this auto&& it) {
+        return fwd(it)._value;
+    }
+
+    constexpr auto construct_value(auto&&... args) {
+        header |= value_live_mask;
+        return *core::construct_at(&_value, fwd(args)...);
+    }
+
+    constexpr void set_value(auto&& new_value) {
+        if (empty())
+            construct_value(fwd(new_value));
+        else
+            value() = fwd(new_value);
+    }
+
+    constexpr void destroy() {
+        if (key_live()) {
+            if constexpr (!trivial_dtor<K>)
+                _key.~K();
+        }
+        if (value_live()) {
+            if constexpr (!trivial_dtor<V>)
+                _value.~V();
+        }
+        header = 0;
+    }
+
+    u64 header = 0;
+    union {
+        char _key_init = {};
+        K    _key;
+    };
+    union {
+        char _init = {};
+        V    _value;
+    };
 };
 
 /* Implementation for pointer and u32/u16/u8 keys */
@@ -196,6 +389,10 @@ struct robin_map_bucket_base<K, V> {
     constexpr void set_key(const_key_t value) {
         header = (header & ~ptr_map_key_mask) | ((u64)value & ptr_map_key_mask);
     }
+
+    // The key lives in the header word; copying the header transfers it.
+    constexpr void construct_key(auto&&) {}
+    constexpr void copy_key(auto&&) {}
 
     constexpr auto&& value(this auto&& it) {
         return fwd(it)._value;
@@ -272,6 +469,11 @@ public:
     //    details::ptr_map_max_distance > MaxSize + 1 ? MaxSize + 1 : details::ptr_map_max_distance;
 
     constexpr robin_map_impl() {
+        // The sentinel bucket at index capacity() is never probed (next_idx
+        // wraps modulo capacity()); its distance-1 header terminates the
+        // iterator's empty-bucket skip. Generic buckets carry no live
+        // key/value there (set_distance preserves the live bits, which are
+        // unset).
         if constexpr (have_static_storage)
             _data[capacity()].set_distance(1);
     }
@@ -529,6 +731,23 @@ template <typename K, size_t MaxSize>
 using static_int_set = robin_set_impl<
     array<robin_map_bucket<robin_map_bucket_base<K, robin_map_no_value>, robin_map_no_value>, MaxSize + 1>,
     int_identity_hash<K>>;
+
+/*
+ * Generic keys: keys that do not fit in the bucket header word (neither
+ * pointers nor small integrals) are stored in the bucket itself and hashed
+ * via core::hash (hash_impl<K>). K must be copyable and comparable via `==`
+ * (default-constructibility is not required).
+ */
+template <typename K, typename V, size_t MaxSize>
+    requires(copy_ctor<K> && copy_assign<K>)
+using static_hash_map =
+    robin_map_impl<V, array<robin_map_bucket<robin_map_bucket_base<K, V>, V>, MaxSize + 1>, hash_impl<K>>;
+
+template <typename K, size_t MaxSize>
+    requires(copy_ctor<K> && copy_assign<K>)
+using static_hash_set = robin_set_impl<
+    array<robin_map_bucket<robin_map_bucket_base<K, robin_map_no_value>, robin_map_no_value>, MaxSize + 1>,
+    hash_impl<K>>;
 } // namespace core
 
 #undef fwd

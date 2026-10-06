@@ -66,6 +66,13 @@ struct obj_t {
     i32 x;
 };
 
+struct point_key {
+    u32 x, y;
+};
+constexpr bool operator==(const point_key& a, const point_key& b) {
+    return a.x == b.x && a.y == b.y;
+}
+
 // Deterministic LCG so the stress test is reproducible.
 struct lcg {
     u32 state = 0x9E3779B9u;
@@ -868,6 +875,273 @@ TEST_CASE("static_int_map stress (oracle comparison)") {
                 ++it;
             REQUIRE(it != m.end());
             i32 k = it.key();
+            CHECK(m.contains(k));
+            m.erase(it);
+            oracle.erase(k);
+            CHECK_FALSE(m.contains(k));
+            CHECK(m.size() == oracle.size());
+        }
+    }
+
+    // Final cross-check in both directions.
+    for (auto&& [k, v] : m)
+        CHECK((oracle.count(k) && oracle[k] == v));
+    for (auto&& [k, v] : oracle)
+        CHECK(m.at(k) == v);
+
+    m.clear();
+    CHECK(m.empty());
+    CHECK(m.begin() == m.end());
+}
+
+TEST_CASE("static_hash_map (generic keys)") {
+    SECTION("std::string keys") {
+        static_hash_map<std::string, i32, 8> m;
+        CHECK(m.empty());
+        CHECK(m.size() == 0);
+
+        m["apple"]  = 1;
+        m["banana"] = 2;
+        m["cherry"] = 3;
+        CHECK(m.size() == 3);
+
+        CHECK(m.contains("apple"));
+        CHECK(m.contains("banana"));
+        CHECK(!m.contains("durian"));
+
+        CHECK(m.at("banana") == 2);
+        CHECK(m["apple"] == 1);
+
+        // Updating an existing key does not grow the map.
+        m["apple"] = 10;
+        CHECK(m.at("apple") == 10);
+        CHECK(m.size() == 3);
+
+        // emplace: duplicate keeps the old value, new inserts.
+        auto [it1, ins1] = m.emplace("banana", 20);
+        REQUIRE_FALSE(ins1);
+        CHECK(it1.key() == "banana");
+        CHECK(it1.value() == 2);
+
+        auto [it2, ins2] = m.emplace("durian", 4);
+        REQUIRE(ins2);
+        CHECK(it2.key() == "durian");
+        CHECK(it2.value() == 4);
+        CHECK(m.size() == 4);
+
+        // insert_or_assign: existing replaces, new inserts.
+        auto [it3, ins3] = m.insert_or_assign("durian", 40);
+        REQUIRE_FALSE(ins3);
+        CHECK(m.at("durian") == 40);
+
+        auto [it4, ins4] = m.insert_or_assign("elder", 5);
+        REQUIRE(ins4);
+        CHECK(it4.value() == 5);
+
+        // Iteration visits every entry exactly once.
+        i32  total = 0;
+        size_t count = 0;
+        for (auto&& [k, v] : m) {
+            (void)k;
+            total += v;
+            ++count;
+        }
+        CHECK(count == 5);
+        CHECK(total == 10 + 2 + 3 + 40 + 5);
+
+        // Erase by key.
+        REQUIRE(m.erase("banana"));
+        CHECK(!m.erase("banana"));
+        CHECK(!m.contains("banana"));
+        CHECK(m.size() == 4);
+
+        // Erase by iterator.
+        auto found = m.find("cherry");
+        REQUIRE(found != m.end());
+        m.erase(found);
+        CHECK(!m.contains("cherry"));
+        CHECK(m.size() == 3);
+
+        // at() throws for missing keys.
+        bool threw = false;
+        try {
+            m.at("lemon");
+        }
+        catch (const robin_map_key_not_found&) {
+            threw = true;
+        }
+        CHECK(threw);
+
+        // Fill to capacity, then overflow (3 entries survived the erasures
+        // above, so add 5 more to reach capacity 8).
+        m["fig"]    = 7;
+        m["grape"]  = 8;
+        m["guava"]  = 9;
+        m["honey"]  = 10;
+        m["kiwi"]   = 11;
+        CHECK(m.size() == 8);
+
+        threw = false;
+        try {
+            m["lemon"] = 12;
+        }
+        catch (const robin_map_overflow&) {
+            threw = true;
+        }
+        CHECK(threw);
+        CHECK(m.size() == 8);
+
+        // clear and reuse.
+        m.clear();
+        CHECK(m.empty());
+        CHECK(m.size() == 0);
+        CHECK(m.begin() == m.end());
+        m["apple"] = 1;
+        CHECK(m.size() == 1);
+        CHECK(m.at("apple") == 1);
+    }
+
+    SECTION("u64 keys (too wide for the header word)") {
+        static_hash_map<u64, i32, 4> m;
+
+        u64 k1 = 0xFFFFFFFFFFFFFFFFu;
+        m[k1]            = 1;
+        m[u64(5)]        = 2;
+        m[u64(1) << 40]  = 3;
+        CHECK(m.size() == 3);
+
+        CHECK(m.at(k1) == 1);
+        CHECK(m.at(u64(5)) == 2);
+        CHECK(m.at(u64(1) << 40) == 3);
+        CHECK(m.contains(k1));
+        CHECK(!m.contains(u64(1) << 41));
+
+        REQUIRE(m.erase(k1));
+        CHECK(!m.contains(k1));
+        CHECK(m.size() == 2);
+    }
+
+    SECTION("trivial struct keys (byte hash)") {
+        static_hash_map<point_key, i32, 4> m;
+
+        m[point_key{1, 2}] = 10;
+        m[point_key{2, 2}] = 20;
+        m[point_key{1, 1}] = 30;
+        CHECK(m.size() == 3);
+
+        CHECK(m.at(point_key{1, 2}) == 10);
+        CHECK(m.at(point_key{2, 2}) == 20);
+        CHECK(!m.contains(point_key{2, 1}));
+
+        // Duplicate emplace keeps the old value.
+        auto [it, ins] = m.emplace(point_key{1, 2}, 99);
+        REQUIRE_FALSE(ins);
+        CHECK(it.value() == 10);
+
+        m[point_key{1, 2}] = 11;
+        CHECK(m.at(point_key{1, 2}) == 11);
+
+        REQUIRE(m.erase(point_key{1, 1}));
+        CHECK(m.size() == 2);
+    }
+}
+
+TEST_CASE("static_hash_set (generic keys)") {
+    static_hash_set<std::string, 4> s;
+    CHECK(s.empty());
+
+    s.emplace("a");
+    s.emplace("bb");
+    s.emplace("ccc");
+    s.emplace("dddd");
+    CHECK(s.size() == 4);
+
+    CHECK(s.contains("ccc"));
+    CHECK(!s.contains("ee"));
+
+    // Duplicate insert is a no-op.
+    auto [it, ins] = s.emplace("bb");
+    REQUIRE_FALSE(ins);
+    CHECK(it.key() == "bb");
+    CHECK(s.size() == 4);
+
+    // Full set: a new key overflows.
+    bool threw = false;
+    try {
+        s.emplace("eeee");
+    }
+    catch (const robin_map_overflow&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(s.size() == 4);
+
+    // Freeing a slot allows insertion again.
+    REQUIRE(s.erase("ccc"));
+    CHECK(!s.erase("ccc"));
+    CHECK(!s.contains("ccc"));
+    CHECK(s.size() == 3);
+
+    auto [it2, ins2] = s.emplace("eeee");
+    REQUIRE(ins2);
+    CHECK(it2.key() == "eeee");
+    CHECK(s.size() == 4);
+
+    s.clear();
+    CHECK(s.empty());
+}
+
+TEST_CASE("static_hash_map stress (string keys, oracle comparison)") {
+    static_hash_map<std::string, i32, 64> m;
+    std::unordered_map<std::string, i32> oracle;
+    lcg  rng;
+
+    for (int op = 0; op < 20000; ++op) {
+        // Small key pool to force collisions.
+        u32 key_id = rng.next() % 47;
+        auto key   = std::string("key_") + std::to_string(key_id);
+        u32 action  = rng.next() % 100;
+
+        if (action < 45) {  // insert
+            i32 v = i32(rng.next() % 100000);
+            auto [it, ins] = m.emplace(key, v);
+            if (oracle.count(key)) {
+                CHECK_FALSE(ins);
+                CHECK(it.value() == oracle[key]);
+            }
+            else {
+                CHECK(ins);
+                CHECK(it.value() == v);
+                oracle[key] = v;
+            }
+        }
+        else if (action < 75) {  // erase by key
+            CHECK(m.erase(key) == (oracle.count(key) != 0));
+            oracle.erase(key);
+        }
+        else {  // lookup
+            auto it = m.find(key);
+            if (oracle.count(key)) {
+                CHECK(it != m.end());
+                CHECK(it.value() == oracle[key]);
+                CHECK(m.contains(key));
+            }
+            else {
+                CHECK(it == m.end());
+                CHECK_FALSE(m.contains(key));
+            }
+        }
+
+        CHECK(m.size() == oracle.size());
+
+        // Occasionally erase through an iterator.
+        if (m.size() > 4 && rng.next() % 64 == 0) {
+            auto it = m.begin();
+            u32 steps = u32(rng.next() % m.size());
+            for (u32 i = 0; i < steps; ++i)
+                ++it;
+            REQUIRE(it != m.end());
+            std::string k = it.key();  // copy: the bucket is erased below
             CHECK(m.contains(k));
             m.erase(it);
             oracle.erase(k);
