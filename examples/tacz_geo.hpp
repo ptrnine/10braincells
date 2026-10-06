@@ -80,6 +80,7 @@
 #include <array>
 #include <map>
 #include <optional>
+#include <set>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -845,17 +846,33 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
     // faces). Two front-facing faces at identical depth z-fight in the depth
     // buffer, and no position-only offset can separate them: the depth of a
     // point on a plane is fixed by the eye ray through the pixel. The fix is
-    // a per-face depth level: faces are grouped by plane (same outward
-    // normal, same plane offset), and each face gets a level that the vertex
+    // a per-face depth level: faces are grouped into LEVEL GROUPS = connected
+    // components of a tight near-coplanar graph (a union-find, driven by the
+    // same spatial-hash pair search as the clip pass: two faces are unioned
+    // when they share an outward normal, are AABB-overlapping, and are
+    // *tightly* near-coplanar |dA - dB| < 2e-5 - just above the D32 z-fight
+    // threshold), and each face gets a level that the vertex
     // shader uses to nudge it away from the eye *along the face normal* in
     // view space by level * depthBias. Shifting along the normal changes the
     // depth of every pixel of the face by level * depthBias / cos(theta) (>
-    // 0 for a front-facing face), so the order of coplanar faces is
+    // 0 for a front-facing face), so the order of near-coplanar faces is
     // deterministic at every camera angle, while faces on distinct planes
-    // keep their true depth order (levels are assigned so that the face
-    // nearest the eye gets the smallest level).
+    // (offset >= 2e-5, already > 1 D32 ulp apart) keep their true depth order
+    // (levels are assigned so that the face nearest the eye gets the smallest
+    // level).
     //
-    // The level order within a group is (distance to eye, draw order): a
+    // The grouping is a TIGHT connected component (not a rep-keyed plane
+    // subgroup, and not a global per-normal rank): a rep-keyed subgroup splits
+    // a near-coplanar *chain* (a face only joins the group whose first member
+    // it is close to), leaving near-coplanar pairs in different groups with
+    // independent levels that can land within 1 D32 ulp of each other -> the
+    // mosaic z-fight (the 3D slide text). A global per-normal rank fixes that
+    // but the max level is huge (349 on timeless50 -> a 2.8-px shift for the
+    // grazing front face) and the blunt offset inverts different-normal pairs.
+    // The tight component stays small (a dozen faces, sub-pixel total offset)
+    // and only touches same-normal faces (no cross-normal inversion).
+    //
+    // The level order within a component is (distance to eye, draw order): a
     // nearer face beats a farther one regardless of draw order (as in the
     // depth buffer), and exact coplanar ties go to the earlier face in draw
     // order (gl_LESS: the first drawn wins an exact depth tie). The
@@ -864,10 +881,13 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
     //
     // Opposite-orientation faces on a shared plane are handled by backface
     // culling: at any view exactly one of the two orientations faces the eye.
-    // Plane identity is established by exact matching (normal agreement to
-    // 0.29 deg + offset agreement to 1e-5) instead of a quantized key: f32
-    // noise in the per-face normals is large enough to straddle a
-    // quantization boundary, which would silently split a true plane group.
+    // Plane identity for the union is established by exact matching (normal
+    // agreement to 0.29 deg + tight offset agreement to 2e-5) instead of a
+    // quantized key: f32 noise in the per-face normals is large enough to
+    // straddle a quantization boundary, which would silently split a true
+    // near-coplanar group. The 2e-5 tight offset is what keeps each component
+    // small (and the total normal offset sub-pixel) while still capturing
+    // every near-coplanar pair that could fall within one D32 ulp.
     if (face_dbg)
         for (u32 i = 0; i < faces.size(); ++i) {
             const auto& p0 = faces[i].p[0];
@@ -964,89 +984,120 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
         }
     }
 
-    // Clip classes: same outward normal (0.29 deg) AND plane offset within
-    // kClipGap of the class representative (no quantized key: f32 noise in
-    // per-face normals straddles any quantization boundary, as for the
-    // subgroup pass below). Faces are only clipped within their class.
-    struct clip_class {
-        glm::vec3 nrm{};
-        f32 d{};
-        std::vector<u32> idx;
-    };
-    std::vector<clip_class> classes;
-    classes.reserve(faces.size());
+    // Which faces clip which: every pair of faces with agreeing normals
+    // (0.29 deg) and plane offset < kClipGap whose 3D AABBs overlap is a clip
+    // candidate; the nearer face (in front along the shared normal) is a
+    // clipper of the farther one, coplanar ties go to draw order. A spatial
+    // hash on the face AABBs finds the candidates without an O(n^2) scan.
+    // (The old rep-based "clip class" grouping missed pairs that are
+    // near-coplanar to each other but each close to a different class rep;
+    // the hash considers every overlapping near-coplanar pair.)
+    constexpr f32 kCell = 0.25f; // blocks per spatial-hash cell
+    auto cell_of = [](f32 x) -> sys::i32 { return sys::i32(std::floor(x / kCell)); };
+    std::map<std::array<sys::i32, 3>, std::vector<u32>> grid;
     for (u32 i = 0; i < faces.size(); ++i) {
-        clip_class* cc = nullptr;
-        for (auto& c : classes) {
-            if (glm::dot(c.nrm, faces[i].nrm) > 0.99999f && glm::abs(c.d - faces[i].d) < kClipGap) {
-                cc = &c;
-                break;
-            }
-        }
-        if (!cc) {
-            classes.push_back(clip_class{});
-            cc     = &classes.back();
-            cc->nrm = faces[i].nrm;
-            cc->d   = faces[i].d;
-        }
-        cc->idx.push_back(i);
+        const aabb& B = bbs[i];
+        for (sys::i32 ix = cell_of(B.mn.x); ix <= cell_of(B.mx.x); ++ix)
+            for (sys::i32 iy = cell_of(B.mn.y); iy <= cell_of(B.mx.y); ++iy)
+                for (sys::i32 iz = cell_of(B.mn.z); iz <= cell_of(B.mx.z); ++iz)
+                    grid[std::array<sys::i32, 3>{ix, iy, iz}].push_back(i);
     }
 
-    // Which faces clip which: for every eligible pair, the in-front face is
-    // recorded as a clipper of the farther one.
+    u32 dbg_coplanar = 0, dbg_afront = 0, dbg_bfront = 0, dbg_skip = 0;
     std::vector<std::vector<u32>> clippers(faces.size());
+    // Union-find over TIGHT near-coplanar (same normal, |dA-dB| < 2e-5,
+    // AABB-overlapping) faces. The connected components become the LEVEL
+    // GROUPS (see the level pass below). The range 2e-5 is just above the D32
+    // z-fight threshold at the typical slide depth (~1.4e-5 blocks), so it
+    // captures exactly the near-coplanar pairs that could fall within one
+    // D32 ulp of each other. Grouping is deliberately tight (not the 0.05
+    // clip gap) so each level group stays small (a dozen faces), keeping the
+    // total normal offset sub-pixel, and so the offset only touches
+    // same-normal faces (no cross-normal depth inversion).
+    std::vector<sys::u32> par(faces.size());
+    for (u32 i = 0; i < faces.size(); ++i)
+        par[i] = i;
+    auto find = [&](auto&& self, sys::u32 x) -> sys::u32 {
+        while (par[x] != x) {
+            par[x] = self(self, par[par[x]]);
+            x      = par[x];
+        }
+        return x;
+    };
+    auto unite = [&](sys::u32 a, sys::u32 b) {
+        const sys::u32 ra = find(find, a);
+        const sys::u32 rb = find(find, b);
+        if (ra != rb)
+            par[ra] = rb;
+    };
+    // Draw-safe order for a face's clippers: nearer plane first, exact
+    // coplanar ties by draw order. Used by the disjoint-partition sort below.
     auto d_rank = [&](u32 i) -> sys::i32 { return sys::i32(glm::floor(faces[i].d / 1e-6f + 0.5f)); };
     auto earlier = [&](u32 a, u32 b) {
         const sys::i32 ka = d_rank(a), kb = d_rank(b);
-        return ka != kb ? ka > kb : a < b; // (d descending, draw order ascending)
+        return ka != kb ? ka > kb : a < b;
     };
-    for (auto& c : classes) {
-        auto& idxs = c.idx;
-        std::sort(idxs.begin(), idxs.end(), [&](u32 a, u32 b) { return earlier(a, b); });
-        for (size_t ia = 0; ia < idxs.size(); ++ia) {
-            const u32 a = idxs[ia];
-            for (size_t ib = ia + 1; ib < idxs.size(); ++ib) {
-                const u32 b  = idxs[ib];
-                if (faces[a].d - faces[b].d > kClipGap)
-                    break; // sorted by d descending: later ones are farther apart
-                const aabb& A = bbs[a], &B = bbs[b];
-                // 3D AABB overlap (slacked: coplanar faces touch in the
-                // normal axis) is necessary for 2D overlap on the plane.
-                if (glm::min(A.mx.x, B.mx.x) - glm::max(A.mn.x, B.mn.x) <= -1e-9f ||
-                    glm::min(A.mx.y, B.mx.y) - glm::max(A.mn.y, B.mn.y) <= -1e-9f ||
-                    glm::min(A.mx.z, B.mx.z) - glm::max(A.mn.z, B.mn.z) <= -1e-9f)
-                    continue;
-                if (faces[a].d - faces[b].d < 1e-5f) {
-                    clippers[b].push_back(a); // coplanar: a precedes b in draw order
-                    continue;
+    std::set<sys::u64> seen; // dedupe: a pair can sit in several shared cells
+    for (u32 i = 0; i < faces.size(); ++i) {
+        const aabb& A = bbs[i];
+        for (sys::i32 ix = cell_of(A.mn.x); ix <= cell_of(A.mx.x); ++ix)
+            for (sys::i32 iy = cell_of(A.mn.y); iy <= cell_of(A.mx.y); ++iy)
+                for (sys::i32 iz = cell_of(A.mn.z); iz <= cell_of(A.mx.z); ++iz) {
+                    auto it = grid.find(std::array<sys::i32, 3>{ix, iy, iz});
+                    if (it == grid.end()) continue;
+                    for (u32 j : it->second) {
+                        if (j <= i) continue;
+                        const sys::u64 key = (sys::u64)i << 32 | sys::u64(j);
+                        if (!seen.insert(key).second) continue;
+                        const aabb& B = bbs[j];
+                        // 3D AABB overlap is necessary for 2D overlap on the
+                        // shared plane.
+                        if (glm::min(A.mx.x, B.mx.x) - glm::max(A.mn.x, B.mn.x) <= -1e-9f ||
+                            glm::min(A.mx.y, B.mx.y) - glm::max(A.mn.y, B.mn.y) <= -1e-9f ||
+                            glm::min(A.mx.z, B.mx.z) - glm::max(A.mn.z, B.mn.z) <= -1e-9f)
+                            continue;
+                        if (glm::dot(faces[i].nrm, faces[j].nrm) < 0.99999f) continue;
+                        const f32 dd = glm::abs(faces[i].d - faces[j].d);
+                        if (dd < 2e-5f)
+                            unite(i, j); // same level group (tight near-coplanar pair)
+                        if (dd >= kClipGap) continue;
+                        if (dd < 1e-5f) { // coplanar: earlier draw order wins
+                            clippers[j].push_back(i);
+                            ++dbg_coplanar;
+                            continue;
+                        }
+                        // Which face is in front? f_i(x) = dot(n_i, x) - d_i > 0
+                        // means x is on the eye side of i's plane (closer to
+                        // the eye). The gap is linear over each quad, so the
+                        // corners suffice; all four extrema are checked.
+                        f32 smin = 1e30f, smax = -1e30f; // f_i at j's corners
+                        for (u32 k = 0; k < 4; ++k) {
+                            const f32 f = glm::dot(faces[i].nrm, faces[j].p[k]) - faces[i].d;
+                            smin        = glm::min(smin, f);
+                            smax        = glm::max(smax, f);
+                        }
+                        f32 tmin = 1e30f, tmax = -1e30f; // f_j at i's corners
+                        for (u32 k = 0; k < 4; ++k) {
+                            const f32 f = glm::dot(faces[j].nrm, faces[i].p[k]) - faces[j].d;
+                            tmin        = glm::min(tmin, f);
+                            tmax        = glm::max(tmax, f);
+                        }
+                        if (smax < 1e-6f && tmin > -1e-6f) {
+                            clippers[j].push_back(i); // i in front of j everywhere
+                            ++dbg_afront;
+                        }
+                        else if (smin > -1e-6f && tmax < 1e-6f) {
+                            clippers[i].push_back(j); // j in front of i everywhere
+                            ++dbg_bfront;
+                        }
+                        // else the planes cross within the extents: real
+                        // geometry, left to the depth test (never clipped).
+                        else ++dbg_skip;
+                    }
                 }
-                // Which face is in front? f_a(x) = dot(n_a, x) - d_a > 0 means
-                // x is on the eye side of a's plane (closer to the eye). The
-                // gap is linear over each quad, so the corners suffice. All
-                // four extrema are needed: a pair whose corners all lie on
-                // the "correct" side of both planes can still be a crossing
-                // pair (the corner min/max of each side must be checked).
-                f32 smin = 1e30f, smax = -1e30f; // f_a at b's corners
-                for (u32 k = 0; k < 4; ++k) {
-                    const f32 f = glm::dot(faces[a].nrm, faces[b].p[k]) - faces[a].d;
-                    smin        = glm::min(smin, f);
-                    smax        = glm::max(smax, f);
-                }
-                f32 tmin = 1e30f, tmax = -1e30f; // f_b at a's corners
-                for (u32 k = 0; k < 4; ++k) {
-                    const f32 f = glm::dot(faces[b].nrm, faces[a].p[k]) - faces[b].d;
-                    tmin        = glm::min(tmin, f);
-                    tmax        = glm::max(tmax, f);
-                }
-                if (smax < 1e-6f && tmin > -1e-6f)
-                    clippers[b].push_back(a); // a in front of b everywhere
-                else if (smin > -1e-6f && tmax < 1e-6f)
-                    clippers[a].push_back(b); // b in front of a everywhere
-                // else the planes cross within the extents: real geometry,
-                // left to the depth test (never clipped).
-            }
-        }
     }
+    if (face_dbg)
+        *face_dbg << "[clip-debug] coplanar=" << dbg_coplanar << " afront=" << dbg_afront << " bfront=" << dbg_bfront << " skip(crossing)=" << dbg_skip << "\n";
 
     // Clip each face that has clippers. Result: convex pieces (2D, on the
     // face's own plane) in draw-safe order; empty optional = unclipped,
@@ -1126,37 +1177,25 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                           << (clipped[i]->empty() ? " (fully hidden)" : "") << "\n";
             }
 
-    struct subgroup {
-        glm::vec3     nrm{};
-        f32           d{};
-        std::vector<u32> faceIdx;
-    };
-    std::vector<subgroup> subgroups;
-    subgroups.reserve(faces.size());
-    for (u32 i = 0; i < faces.size(); ++i) {
-        const raw_face& rf = faces[i];
-        subgroup*        sg = nullptr;
-        for (auto& s : subgroups) {
-            if (glm::dot(s.nrm, rf.nrm) > 0.99999f && glm::abs(s.d - rf.d) < 1e-5f) {
-                sg = &s;
-                break;
-            }
-        }
-        if (!sg) {
-            subgroups.push_back(subgroup{});
-            sg           = &subgroups.back();
-            sg->nrm      = rf.nrm;
-            sg->d        = rf.d;
-        }
-        sg->faceIdx.push_back(i);
-    }
+    // Level groups = connected components of the tight near-coplanar graph
+    // (the union-find above). Within a component every face is
+    // near-coplanar (same normal, offset < 2e-5, transitively), so one depth
+    // order (d descending, draw order ascending) gives a monotone level to
+    // each: near-coplanar faces that meet at a pixel get adjacent levels and
+    // the per-level normal offset (kept > 1 D32 ulp at every range) strictly
+    // separates them. Faces in different components keep independent levels,
+    // but they are not near-coplanar (offset >= 2e-5), so they are already
+    // > 1 D32 ulp apart and never z-fight.
+    std::map<sys::u32, std::vector<u32>> comps;
+    for (u32 i = 0; i < faces.size(); ++i)
+        comps[find(find, i)].push_back(i);
 
-    for (auto& s : subgroups) {
+    for (auto& pr : comps) {
+        auto& idxs = pr.second;
         // Nearest face first (largest d = closest to the eye along the
-        // outward normal), coplanar ties by draw order. d is quantized to
-        // 1e-6 in the comparator: smaller differences are f32 noise of
-        // true coplanar faces and must be treated as ties.
-        auto& idxs = s.faceIdx;
+        // outward normal), exact-coplanar ties by draw order. d is
+        // quantized to 1e-6 in the comparator: smaller differences are f32
+        // noise of true coplanar faces and must be treated as ties.
         std::sort(idxs.begin(), idxs.end(), [&](u32 a, u32 b) {
             const sys::i32 ka = sys::i32(glm::floor(faces[a].d / 1e-6f + 0.5f));
             const sys::i32 kb = sys::i32(glm::floor(faces[b].d / 1e-6f + 0.5f));
@@ -1177,7 +1216,7 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
                 for (const auto& piece : *clipped[idxs[rank]]) {
                     const u32 pb = u32(out.vertices.size());
                     for (const auto& pt : piece)
-                        out.vertices.push_back(mesh_vertex{rf.d * rf.nrm + pt.s * fr.u + pt.t * fr.v, glm::vec2{pt.u, pt.v}, lvl, s.nrm});
+                        out.vertices.push_back(mesh_vertex{rf.d * rf.nrm + pt.s * fr.u + pt.t * fr.v, glm::vec2{pt.u, pt.v}, lvl, rf.nrm});
                     for (u32 k = 1; k + 1 < u32(piece.size()); ++k)
                         out.indices.insert(out.indices.end(), {pb, pb + k, pb + k + 1});
                     out.face_sizes.push_back(u32(piece.size()));
@@ -1185,7 +1224,7 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             } else {
                 const u32 base = u32(out.vertices.size());
                 for (u32 q = 0; q < 4; ++q)
-                    out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], lvl, s.nrm});
+                    out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], lvl, rf.nrm});
                 out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
                 out.face_sizes.push_back(4);
             }
