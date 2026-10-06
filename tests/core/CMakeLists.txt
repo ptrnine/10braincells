@@ -18,6 +18,7 @@ add_executable(tests-core
     byteconv.cpp
     string.cpp
     xxhash.cpp
+    hash.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)
