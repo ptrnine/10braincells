@@ -9,6 +9,14 @@ option(ENABLE_ASAN "Enable address sanitizer" OFF)
 option(BUILD_3RD "Build 3rd party libraries only" OFF)
 set(VULKAN_API "/usr/share/vulkan/registry/vk.xml")
 
+if(ENABLE_TESTS)
+    # Top-level enable_testing() so ctest picks up the tests registered by
+    # catch_discover_tests in the tests/ subtree (the include(CTest) in
+    # tests/CMakeLists.txt alone does not generate the top-level
+    # CTestTestfile.cmake).
+    enable_testing()
+endif()
+
 if(BUILD_3RD)
     include(cmake/submodules_init.cmake)
     include(cmake/submodule_build.cmake)

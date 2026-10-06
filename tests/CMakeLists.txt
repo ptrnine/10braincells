@@ -5,3 +5,4 @@ include(Catch)
 
 add_subdirectory(core)
 add_subdirectory(codegen)
+add_subdirectory(async)
