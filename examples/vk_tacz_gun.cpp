@@ -60,7 +60,8 @@ struct ubo_t {
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 projection;
-    f32       depth_bias; /* per depth level, in eye-space units, see tacz_gun.slang */
+    f32       depth_bias; /* per depth level, in eye-space units, see tacz_gun.slang;
+                            always 0 now (no de-fighting pass: faces are at natural depth) */
 };
 
 struct swapchain_details {
@@ -264,13 +265,12 @@ class tacx_gun {
 public:
     util::logger& log = glog();
 
-    tacx_gun(std::string ikbd_path, std::string imouse_path, core::opt<std::string> igun_name, core::opt<f32> ifov, core::opt<f32> iscale, bool idefight):
+    tacx_gun(std::string ikbd_path, std::string imouse_path, core::opt<std::string> igun_name, core::opt<f32> ifov, core::opt<f32> iscale):
         kbd_path(mov(ikbd_path)),
         mouse_path(mov(imouse_path)),
         gun_name(igun_name.value_or(std::string{"ak47"})),
         fov(ifov.value_or(70.f)),
-        scale(iscale.value_or(3.f)),
-        defight(idefight) {
+        scale(iscale.value_or(3.f)) {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
@@ -1063,7 +1063,7 @@ private:
             .view  = lookAt(cam.position, cam.position + cam.forward(), up),
             .projection =
                 glm::perspective(glm::radians(fov), static_cast<float>(swapchain_extent.width) / static_cast<float>(swapchain_extent.height), 0.1f, 100.0f),
-            .depth_bias = defight ? 5e-5f * scale : 0.f,
+            .depth_bias = 0.f, // no de-fighting pass: every face is at its natural depth
         };
         ubo.projection[1][1] *= -1;
 
@@ -1121,7 +1121,7 @@ private:
                     cur.scale = ba.scale;
             }
         }
-        auto mesh = tacz::build_mesh(geo, anims, defight);
+        auto mesh = tacz::build_mesh(geo, anims);
 
         vertices.clear();
         indices.clear();
@@ -1265,7 +1265,6 @@ private:
     std::string                   gun_name;
     f32                           fov;
     f32                           scale;
-    bool                          defight;
 };
 
 tbc_cmd(main) {
@@ -1274,11 +1273,10 @@ tbc_cmd(main) {
     tbc_arg(gun, core::opt<std::string>, "gun model name in the Tacz gun pack (default: ak47)"_ctstr);
     tbc_arg(fov, core::opt<f32>, "field of view in degrees (default: 70)"_ctstr) = 70.f;
     tbc_arg(scale, core::opt<f32>, "gun scale (default: 3)"_ctstr) = 3.f;
-    tbc_arg(no_defight, bool, "disable the z-fighting de-fighting pass (fast path: whole quads at natural depth, may z-fight on near-coplanar details)"_ctstr);
 };
 
 void tbc_main(main_cmd<> args) {
-    tacx_gun(*args.kbd, *args.mouse, *args.gun, *args.fov, *args.scale, !*args.no_defight).run();
+    tacx_gun(*args.kbd, *args.mouse, *args.gun, *args.fov, *args.scale).run();
 }
 
 #include <util/tbc_main.hpp>

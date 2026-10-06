@@ -82,8 +82,6 @@
 #include <optional>
 #include <set>
 #include <ostream>
-#include <unordered_map>
-#include <unordered_set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -142,32 +140,22 @@ struct bone_anim {
 struct mesh_vertex {
     glm::vec3 pos;   // eye space, blocks
     glm::vec2 uv;    // normalized; v = 0 is the top of the texture
-    f32       level; // depth-fighting level: the vertex shader shifts the face
-                     // away from the eye, along the face normal (view space),
-                     // by level * depthBias (eye units)
-    glm::vec3 nrm;   // face normal (model space), for the shader-side shift
+    f32       level; // always 0 (no de-fighting pass); kept for vertex-format
+                     // compatibility (the vertex shader's per-level offset is 0)
+    glm::vec3 nrm;   // face normal; kept for vertex-format compatibility (the
+                     // shader-side offset is 0, so it is unused)
 };
 
 struct mesh {
     std::vector<mesh_vertex> vertices;
     std::vector<u32> indices;
-    // Vertex count of each face: a face is a convex CCW polygon (4 for an
-    // unclipped quad, 3 or more for a clipped piece) whose fan triangles are the
-    // (v-2) index triples (base, base+k, base+k+1), k = 1..v-2, stored in
-    // order, 3 per face. (See the de-fighting clip pass in build_mesh.)
+    // Vertex count of each face: always 4 (whole quads, no clipping). Each
+    // face's fan triangles are the two index triples (base, base+1, base+2),
+    // (base, base+2, base+3). Kept for dump-format compatibility with the
+    // Python tools.
     std::vector<u32> face_sizes;
 };
 
-// Per-face budget of the exact clip pass: a face whose clipped pieces would
-// need more than this many fan triangles is emitted unclipped (the level
-// scheme still resolves it; the pack's worst face needs 111). 3 verts per
-// triangle bounds the per-face vertex/index count.
-inline constexpr u32 kMaxClipTriangles = 128;
-// Max clippers a face is clipped against (nearest first). The disjoint
-// partition is O(4^k) in the clipper count, so a hard cap keeps per-frame
-// rebuilds (during animations) fast. Nearer planes win the overlap, so the
-// nearest clippers cover the significant z-fight.
-inline constexpr u32 kMaxClippers = 32; // above the observed max (12); the triangle cap bounds the worst case
 
 namespace details
 {
@@ -258,56 +246,6 @@ inline constexpr std::array<face_def, 6> faces{
     face_def{std::array<u32, 4>{4u, 5u, 6u, 7u}, "south", {0.f, 0.f, 1.f}},  // south
 };
 
-// A point on a face's own plane in its 2D frame (s, t along frame axes u, v)
-// plus the face uv carried along for interpolation at clip intersections.
-struct p2 {
-    f32 s{}, t{}, u{}, v{};
-};
-
-// Sutherland-Hodgman clip of a CCW convex polygon by ONE half-plane: the
-// "outside" side (f <= 0) of the directed line a -> b, where a, b are two
-// consecutive corners of a CCW clipper quad (the clipper's interior is f >=
-// 0). Reversing (a, b) keeps the inside instead. The de-fighting pass uses
-// it to build the disjoint convex partition of P \ C described in
-// build_mesh.
-inline std::vector<p2> half_clip(const std::vector<p2>& poly, const p2& a, const p2& b) {
-    auto F = [&](const p2& p) -> f32 { return (b.s - a.s) * (p.t - a.t) - (b.t - a.t) * (p.s - a.s); };
-    std::vector<p2> out;
-    out.reserve(poly.size() + 1);
-    const u32 n = u32(poly.size());
-    for (u32 i = 0; i < n; ++i) {
-        const p2& pa = poly[i];
-        const p2& pb = poly[(i + 1) % n];
-        const f32 fa = F(pa), fb = F(pb);
-        const bool ina = fa <= 0.f, inb = fb <= 0.f;
-        if (ina)
-            out.push_back(pa);
-        if (ina != inb) {
-            const f32 tt = fa / (fa - fb);
-            out.push_back(p2{pa.s + tt * (pb.s - pa.s), pa.t + tt * (pb.t - pa.t), pa.u + tt * (pb.u - pa.u), pa.v + tt * (pb.v - pa.v)});
-        }
-        if (inb)
-            out.push_back(pb);
-    }
-    // drop consecutive duplicates (including wrap-around)
-    std::vector<p2> cl;
-    cl.reserve(out.size());
-    auto dist2 = [](const p2& a, const p2& b) -> f32 { const f32 dx = a.s - b.s, dy = a.t - b.t; return dx * dx + dy * dy; };
-    for (const auto& p : out)
-        if (cl.empty() || dist2(p, cl.back()) > 1e-12f)
-            cl.push_back(p);
-    if (cl.size() > 2 && dist2(cl.front(), cl.back()) <= 1e-12f)
-        cl.pop_back();
-    if (cl.size() < 3)
-        return {};
-    // drop degenerate slivers
-    f32 area = 0.f;
-    for (u32 i = 0; i < u32(cl.size()); ++i) {
-        const p2& pa = cl[i], &pb = cl[(i + 1) % u32(cl.size())];
-        area += pa.s * pb.t - pb.s * pa.t;
-    }
-    return glm::abs(area) < 1e-12f ? std::vector<p2>{} : std::move(cl);
-}
 } // namespace details
 
 inline geometry parse_geometry(const nlohmann::json& j)
@@ -738,14 +676,8 @@ inline std::map<std::string, bone_anim> sample_animation(const keyframe_anim& a,
     return out;
 }
 
-// defight: when true (default), runs the de-fighting pass (exact clip +
-// tight near-coplanar level grouping) to eliminate z-fighting; when false,
-// emits every face as a whole quad at its natural depth (level 0, no offset,
-// no clipping) and lets the depth buffer (gl_LESS) break ties the vanilla MC
-// way. The de-fighting pass is the per-frame cost while animations rebuild
-// the mesh, so false is the fast path.
 // face_dbg: if non-null, build_mesh writes one line per collected face.
-inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_anim>& anims = {}, bool defight = true, std::ostream* face_dbg = nullptr)
+inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_anim>& anims = {}, std::ostream* face_dbg = nullptr)
 {
     mesh out;
 
@@ -765,8 +697,8 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
     const f32 tex_w = f32(geo.texture_width);
     const f32 tex_h = f32(geo.texture_height);
 
-    // Faces are collected in draw order first; after the walk, faces sharing
-    // an exact plane are made not to overlap (see the de-fighting pass).
+    // Faces are collected in draw order; each is emitted as a whole quad at
+    // its natural depth (no de-fighting pass — see the section in AGENTS.md).
     struct raw_face {
         glm::vec3 p[4];
         glm::vec2 uv[4];
@@ -853,431 +785,24 @@ inline mesh build_mesh(const geometry& geo, const std::map<std::string, bone_ani
             render_bone(b, cam, render_bone);
     }
 
-    // De-fighting pass. The bedrock models contain many faces that sit
-    // exactly on top of each other (adjacent cubes sharing a plane, inflated
-    // faces). Two front-facing faces at identical depth z-fight in the depth
-    // buffer, and no position-only offset can separate them: the depth of a
-    // point on a plane is fixed by the eye ray through the pixel. The fix is
-    // a per-face depth level: faces are grouped into LEVEL GROUPS = connected
-    // components of a tight near-coplanar graph (a union-find, driven by the
-    // same spatial-hash pair search as the clip pass: two faces are unioned
-    // when they share an outward normal, are AABB-overlapping, and are
-    // *tightly* near-coplanar |dA - dB| < 2e-5 - just above the D32 z-fight
-    // threshold), and each face gets a level that the vertex
-    // shader uses to nudge it away from the eye *along the face normal* in
-    // view space by level * depthBias. Shifting along the normal changes the
-    // depth of every pixel of the face by level * depthBias / cos(theta) (>
-    // 0 for a front-facing face), so the order of near-coplanar faces is
-    // deterministic at every camera angle, while faces on distinct planes
-    // (offset >= 2e-5, already > 1 D32 ulp apart) keep their true depth order
-    // (levels are assigned so that the face nearest the eye gets the smallest
-    // level).
-    //
-    // The grouping is a TIGHT connected component (not a rep-keyed plane
-    // subgroup, and not a global per-normal rank): a rep-keyed subgroup splits
-    // a near-coplanar *chain* (a face only joins the group whose first member
-    // it is close to), leaving near-coplanar pairs in different groups with
-    // independent levels that can land within 1 D32 ulp of each other -> the
-    // mosaic z-fight (the 3D slide text). A global per-normal rank fixes that
-    // but the max level is huge (349 on timeless50 -> a 2.8-px shift for the
-    // grazing front face) and the blunt offset inverts different-normal pairs.
-    // The tight component stays small (a dozen faces, sub-pixel total offset)
-    // and only touches same-normal faces (no cross-normal inversion).
-    //
-    // The level order within a component is (distance to eye, draw order): a
-    // nearer face beats a farther one regardless of draw order (as in the
-    // depth buffer), and exact coplanar ties go to the earlier face in draw
-    // order (gl_LESS: the first drawn wins an exact depth tie). The
-    // displacement of at most max_level * depthBias is a fraction of a
-    // pixel, so the model is visually unchanged.
-    //
-    // Opposite-orientation faces on a shared plane are handled by backface
-    // culling: at any view exactly one of the two orientations faces the eye.
-    // Plane identity for the union is established by exact matching (normal
-    // agreement to 0.29 deg + tight offset agreement to 2e-5) instead of a
-    // quantized key: f32 noise in the per-face normals is large enough to
-    // straddle a quantization boundary, which would silently split a true
-    // near-coplanar group. The 2e-5 tight offset is what keeps each component
-    // small (and the total normal offset sub-pixel) while still capturing
-    // every near-coplanar pair that could fall within one D32 ulp.
+    // No de-fighting pass: every face is emitted as a whole quad at its
+    // natural depth (level 0 -> no per-face offset in the vertex shader).
+    // Exact-coplanar ties are broken by the depth buffer (gl_LESS: first
+    // drawn wins), matching vanilla MC, and the mesh rebuild stays cheap
+    // while animations run.
     if (face_dbg)
         for (u32 i = 0; i < faces.size(); ++i) {
             const auto& p0 = faces[i].p[0];
             *face_dbg << "face " << i << " bone=" << faces[i].bone << " nrm=" << faces[i].nrm.x << "," << faces[i].nrm.y << "," << faces[i].nrm.z << " d=" << faces[i].d << " p0=" << p0.x << "," << p0.y << "," << p0.z << "\n";
         }
 
-    if (defight) {
-    // ------------------------------------------------------------------
-    // De-fighting pass, part 1: EXACT CLIPPING. The level offset below is a
-    // depth-buffer TIE-BREAKER: it only decides the winner between two faces
-    // that still overlap on screen, and its per-level nudge can eat into
-    // (partially invert) the true depth gap of near-coplanar faces. A
-    // stronger guarantee is to make the faces not overlap at all: every
-    // farther face is clipped exactly against the nearer (near-)coplanar
-    // same-orientation faces in 2D on the shared plane, so no pixel is ever
-    // covered by two faces of the same clip class and the depth test is
-    // never asked to break a tie within the class.
-    //
-    // The difference P \ C of two convex polygons is not convex (a notch),
-    // so it is computed from the clipper's CCW edge half-planes
-    // (C = intersect_e H_e) with the DISJOINT partition
-    //     P \ C = union_k (P \ H_k \cap H_k^c),   H_k^c = intersect_{m < k} H_m
-    // i.e. each point of P \ C is assigned to the piece of its FIRST
-    // violated edge index. Every piece is still a convex polygon
-    // (an intersection of half-planes) and fan-triangulates trivially, and
-    // the pieces are mutually disjoint (they touch only at boundaries), so
-    // no two faces - not even two pieces of one face - share a pixel.
-    // A fully covered face is
-    // dropped entirely (nearer faces hide it from every view: same outward
-    // normal => both face the eye or neither does).
-    //
-    // Pair eligibility (normals agree to 0.29 deg, |d_a - d_b| < kClipGap):
-    //   * coplanar (|d_a - d_b| < 1e-5): the earlier face in draw order is
-    //     in front (gl_LESS: first drawn wins the exact depth tie), so the
-    //     later face is clipped against the earlier one.
-    //   * distinct planes: the face in front everywhere clips the other.
-    //     The plane separation is linear over each quad, so the four
-    //     corners of each give the gap's min/max; a is in front of b
-    //     everywhere iff every corner of b is behind a's plane AND every
-    //     corner of a is in front of b's plane (both directions must hold:
-    //     a crossing pair also has some corners behind on each side). If
-    //     the planes CROSS within the extents, the truly closer surface
-    //     flips pixel-by-pixel: that is real geometry, not z-fighting, and
-    //     the depth test resolves it - the pair is skipped.
-    //
-    // Clipping is view-independent and EXACT for parallel planes: along
-    // any eye ray through the overlap the nearer plane is hit first, at
-    // every camera angle (mouse-look included), so removing the farther
-    // face's covered region cannot change the visible image. The clipped
-    // pieces keep the face's own plane, its uv mapping and its CCW winding
-    // (inherited from the quad), so invariants 1-4 of the level pass
-    // (winding, per-face fresh vertices, vertex order, monotone levels)
-    // all hold unchanged: pieces are emitted where the original quad would
-    // be, with the original face's level.
-    constexpr f32 kClipGap = 0.05f; // max plane offset (blocks) for clip pairs
-
-    // Per-face 2D frame on its own plane (u, v orthonormal, u x v = nrm),
-    // built lazily. Faces are CCW from the outside by construction, so the
-    // signed (s, t) area of the quad is positive for a valid frame.
-    struct frame2d {
-        glm::vec3 u{}, v{};
-        bool ok{};
-    };
-    std::vector<frame2d> frames(faces.size());
-    auto make_frame = [&](u32 i) -> frame2d& {
-        frame2d& fr = frames[i];
-        if (fr.ok)
-            return fr;
-        const glm::vec3& n = faces[i].nrm;
-        const f32 ax = glm::abs(n.x), ay = glm::abs(n.y), az = glm::abs(n.z);
-        const glm::vec3 ref = (ax <= ay && ax <= az) ? glm::vec3{1.f, 0.f, 0.f}
-                            : (ay <= az                 ? glm::vec3{0.f, 1.f, 0.f}
-                                                       : glm::vec3{0.f, 0.f, 1.f});
-        fr.u = glm::normalize(glm::cross(n, ref));
-        fr.v = glm::cross(n, fr.u);
-        f32 area = 0.f;
-        for (u32 k = 0; k < 4; ++k) {
-            const glm::vec3& pa = faces[i].p[k];
-            const glm::vec3& pb = faces[i].p[(k + 1) % 4];
-            area += glm::dot(pa, fr.u) * glm::dot(pb, fr.v) - glm::dot(pb, fr.u) * glm::dot(pa, fr.v);
-        }
-        fr.ok = area > 1e-9f;
-        return fr;
-    };
-
-    struct aabb {
-        glm::vec3 mn{}, mx{};
-    };
-    std::vector<aabb> bbs(faces.size());
     for (u32 i = 0; i < faces.size(); ++i) {
-        bbs[i].mn = bbs[i].mx = faces[i].p[0];
-        for (u32 k = 1; k < 4; ++k) {
-            bbs[i].mn = glm::min(bbs[i].mn, faces[i].p[k]);
-            bbs[i].mx = glm::max(bbs[i].mx, faces[i].p[k]);
-        }
-    }
-
-    // Which faces clip which: every pair of faces with agreeing normals
-    // (0.29 deg) and plane offset < kClipGap whose 3D AABBs overlap is a clip
-    // candidate; the nearer face (in front along the shared normal) is a
-    // clipper of the farther one, coplanar ties go to draw order. A spatial
-    // hash on the face AABBs finds the candidates without an O(n^2) scan.
-    // (The old rep-based "clip class" grouping missed pairs that are
-    // near-coplanar to each other but each close to a different class rep;
-    // the hash considers every overlapping near-coplanar pair.)
-    constexpr f32 kCell = 0.25f; // blocks per spatial-hash cell
-    auto cell_of = [](f32 x) -> sys::i32 { return sys::i32(std::floor(x / kCell)); };
-    // Encode a (ix,iy,iz) cell into a u64 so the grid can be a flat hash map
-    // (a tree-based std::map over ~100k pair lookups was a big per-frame cost
-    // while animations rebuild the mesh every frame).
-    auto cell_key = [](sys::i32 ix, sys::i32 iy, sys::i32 iz) -> sys::u64 {
-        return (sys::u64)(sys::u32)(ix + 512) << 40 | (sys::u64)(sys::u32)(iy + 512) << 20 | (sys::u64)(sys::u32)(iz + 512);
-    };
-    std::unordered_map<sys::u64, std::vector<u32>> grid;
-    for (u32 i = 0; i < faces.size(); ++i) {
-        const aabb& B = bbs[i];
-        for (sys::i32 ix = cell_of(B.mn.x); ix <= cell_of(B.mx.x); ++ix)
-            for (sys::i32 iy = cell_of(B.mn.y); iy <= cell_of(B.mx.y); ++iy)
-                for (sys::i32 iz = cell_of(B.mn.z); iz <= cell_of(B.mx.z); ++iz)
-                    grid[cell_key(ix, iy, iz)].push_back(i);
-    }
-
-    u32 dbg_coplanar = 0, dbg_afront = 0, dbg_bfront = 0, dbg_skip = 0;
-    u32 dbg_max_clip = 0, dbg_max_pieces = 0, dbg_max_halfclips = 0; // per-face maxima
-    std::vector<std::vector<u32>> clippers(faces.size());
-    // Union-find over TIGHT near-coplanar (same normal, |dA-dB| < 2e-5,
-    // AABB-overlapping) faces. The connected components become the LEVEL
-    // GROUPS (see the level pass below). The range 2e-5 is just above the D32
-    // z-fight threshold at the typical slide depth (~1.4e-5 blocks), so it
-    // captures exactly the near-coplanar pairs that could fall within one
-    // D32 ulp of each other. Grouping is deliberately tight (not the 0.05
-    // clip gap) so each level group stays small (a dozen faces), keeping the
-    // total normal offset sub-pixel, and so the offset only touches
-    // same-normal faces (no cross-normal depth inversion).
-    std::vector<sys::u32> par(faces.size());
-    for (u32 i = 0; i < faces.size(); ++i)
-        par[i] = i;
-    auto find = [&](auto&& self, sys::u32 x) -> sys::u32 {
-        while (par[x] != x) {
-            par[x] = self(self, par[par[x]]);
-            x      = par[x];
-        }
-        return x;
-    };
-    auto unite = [&](sys::u32 a, sys::u32 b) {
-        const sys::u32 ra = find(find, a);
-        const sys::u32 rb = find(find, b);
-        if (ra != rb)
-            par[ra] = rb;
-    };
-    // Draw-safe order for a face's clippers: nearer plane first, exact
-    // coplanar ties by draw order. Used by the disjoint-partition sort below.
-    auto d_rank = [&](u32 i) -> sys::i32 { return sys::i32(glm::floor(faces[i].d / 1e-6f + 0.5f)); };
-    auto earlier = [&](u32 a, u32 b) {
-        const sys::i32 ka = d_rank(a), kb = d_rank(b);
-        return ka != kb ? ka > kb : a < b;
-    };
-    std::unordered_set<sys::u64> seen; // dedupe: a pair can sit in several shared cells
-    for (u32 i = 0; i < faces.size(); ++i) {
-        const aabb& A = bbs[i];
-        for (sys::i32 ix = cell_of(A.mn.x); ix <= cell_of(A.mx.x); ++ix)
-            for (sys::i32 iy = cell_of(A.mn.y); iy <= cell_of(A.mx.y); ++iy)
-                for (sys::i32 iz = cell_of(A.mn.z); iz <= cell_of(A.mx.z); ++iz) {
-                    auto it = grid.find(cell_key(ix, iy, iz));
-                    if (it == grid.end()) continue;
-                    for (u32 j : it->second) {
-                        if (j <= i) continue;
-                        const aabb& B = bbs[j];
-                        // 3D AABB overlap is necessary for 2D overlap on the
-                        // shared plane. Inline comparisons (glm::min/max
-                        // didn't inline in the hot loop; this runs millions of
-                        // times per frame while animations rebuild the mesh).
-                        if (A.mn.x > B.mx.x || A.mx.x < B.mn.x || A.mn.y > B.mx.y ||
-                            A.mx.y < B.mn.y || A.mn.z > B.mx.z || A.mx.z < B.mn.z)
-                            continue;
-                        const auto& ni = faces[i].nrm;
-                        const auto& nj = faces[j].nrm;
-                        if (ni.x * nj.x + ni.y * nj.y + ni.z * nj.z < 0.99999f) continue;
-                        const sys::u64 key = (sys::u64)i << 32 | sys::u64(j);
-                        if (!seen.insert(key).second) continue; // dedupe (after the cheap prefilters)
-                        const f32 dd = faces[i].d > faces[j].d ? faces[i].d - faces[j].d : faces[j].d - faces[i].d;
-                        if (dd < 2e-5f)
-                            unite(i, j); // same level group (tight near-coplanar pair)
-                        if (dd >= kClipGap) continue;
-                        if (dd < 1e-5f) { // coplanar: earlier draw order wins
-                            clippers[j].push_back(i);
-                            ++dbg_coplanar;
-                            continue;
-                        }
-                        // Which face is in front? f_i(x) = dot(n_i, x) - d_i > 0
-                        // means x is on the eye side of i's plane (closer to
-                        // the eye). The gap is linear over each quad, so the
-                        // corners suffice; all four extrema are checked.
-                        f32 smin = 1e30f, smax = -1e30f; // f_i at j's corners
-                        for (u32 k = 0; k < 4; ++k) {
-                            const auto& c = faces[j].p[k];
-                            const f32    f = ni.x * c.x + ni.y * c.y + ni.z * c.z - faces[i].d;
-                            smin         = f < smin ? f : smin;
-                            smax         = f > smax ? f : smax;
-                        }
-                        f32 tmin = 1e30f, tmax = -1e30f; // f_j at i's corners
-                        for (u32 k = 0; k < 4; ++k) {
-                            const auto& c = faces[i].p[k];
-                            const f32    f = nj.x * c.x + nj.y * c.y + nj.z * c.z - faces[j].d;
-                            tmin         = f < tmin ? f : tmin;
-                            tmax         = f > tmax ? f : tmax;
-                        }
-                        if (smax < 1e-6f && tmin > -1e-6f) {
-                            clippers[j].push_back(i); // i in front of j everywhere
-                            ++dbg_afront;
-                        }
-                        else if (smin > -1e-6f && tmax < 1e-6f) {
-                            clippers[i].push_back(j); // j in front of i everywhere
-                            ++dbg_bfront;
-                        }
-                        // else the planes cross within the extents: real
-                        // geometry, left to the depth test (never clipped).
-                        else ++dbg_skip;
-                    }
-                }
-    }
-    // Clip each face that has clippers. Result: convex pieces (2D, on the
-    // face's own plane) in draw-safe order; empty optional = unclipped,
-    // empty piece list = fully hidden face.
-    std::vector<std::optional<std::vector<std::vector<details::p2>>>> clipped(faces.size());
-    for (u32 i = 0; i < faces.size(); ++i) {
-        if (clippers[i].empty())
-            continue;
-        frame2d& fr = make_frame(i);
-        if (!fr.ok)
-            continue; // broken winding: leave the face untouched
-        auto to2d = [&](const raw_face& rf) -> std::vector<details::p2> {
-            std::vector<details::p2> q;
-            q.reserve(4);
-            for (u32 k = 0; k < 4; ++k)
-                q.push_back(details::p2{glm::dot(rf.p[k], fr.u), glm::dot(rf.p[k], fr.v), rf.uv[k].x, rf.uv[k].y});
-            return q;
-        };
-        // Clipper quads projected onto i's plane along the eye rays (the
-        // eye is at the origin): exact for any pair of near-parallel planes,
-        // so the 2D shadow has the exact pixel coverage of the clipper at
-        // every camera angle. The eye is on the outward side of both planes,
-        // so the projection scale d/(n . x) stays positive and the CCW
-        // winding is preserved.
-        auto order = clippers[i];
-        std::sort(order.begin(), order.end(), [&](u32 a, u32 b) { return earlier(a, b); });
-        if (order.size() > kMaxClippers)
-            order.resize(kMaxClippers); // nearest first: keep the cost bounded
-        std::vector<std::vector<details::p2>> cps;
-        cps.reserve(order.size());
-        for (u32 j : order) {
-            const raw_face& rf = faces[j];
-            std::vector<details::p2> q;
-            q.reserve(4);
-            for (u32 k = 0; k < 4; ++k) {
-                const glm::vec3& B  = rf.p[k];
-                const glm::vec3     pp = (faces[i].d / glm::dot(faces[i].nrm, B)) * B; // eye ray through B hits plane i
-                q.push_back(details::p2{glm::dot(pp, fr.u), glm::dot(pp, fr.v), 0.f, 0.f});
-            }
-            cps.push_back(std::move(q));
-        }
-
-        dbg_max_clip = glm::max(dbg_max_clip, u32(cps.size()));
-        std::vector<std::vector<details::p2>> pieces = {to2d(faces[i])};
-        u32 face_halfclips = 0;
-        bool over = false;
-        for (const auto& cp : cps) {
-            std::vector<std::vector<details::p2>> next;
-            for (auto& piece : pieces) {
-                // disjoint partition of piece \ clipper: point -> piece of its
-                // first violated edge index (see the pass comment above)
-                for (u32 k = 0; k < 4; ++k) {
-                    auto q = details::half_clip(piece, cp[k], cp[(k + 1) % 4]); // \ H_k
-                    ++face_halfclips;
-                    for (u32 m = 0; m < k && !q.empty(); ++m) {
-                        q = details::half_clip(q, cp[(m + 1) % 4], cp[m]); //   ∩ H_m
-                        ++face_halfclips;
-                    }
-                    if (!q.empty())
-                        next.push_back(std::move(q));
-                }
-            }
-            pieces = std::move(next);
-            if (pieces.empty())
-                break;
-            dbg_max_pieces = glm::max(dbg_max_pieces, u32(pieces.size()));
-            u32 tris = 0;
-            for (const auto& piece : pieces)
-                tris += u32(piece.size() - 2);
-            if (tris > kMaxClipTriangles) {
-                over = true; // too many pieces: keep the face whole
-                break;
-            }
-        }
-        dbg_max_halfclips = glm::max(dbg_max_halfclips, face_halfclips);
-        if (!over)
-            clipped[i] = std::move(pieces);
-    }
-    if (face_dbg) {
-        for (u32 i = 0; i < faces.size(); ++i)
-            if (clipped[i]) {
-                u32 nv2 = 0;
-                for (const auto& p : *clipped[i])
-                    nv2 += u32(p.size());
-                *face_dbg << "  clip face " << i << " bone=" << faces[i].bone << " clippers=" << clippers[i].size() << " pieces=" << clipped[i]->size() << " verts=" << nv2
-                          << (clipped[i]->empty() ? " (fully hidden)" : "") << "\n";
-            }
-        *face_dbg << "[clip-debug] coplanar=" << dbg_coplanar << " afront=" << dbg_afront << " bfront=" << dbg_bfront << " skip(crossing)=" << dbg_skip
-                 << " max_clippers/face=" << dbg_max_clip << " max_pieces/face=" << dbg_max_pieces << " max_halfclips/face=" << dbg_max_halfclips << "\n";
-    }
-
-    // Level groups = connected components of the tight near-coplanar graph
-    // (the union-find above). Within a component every face is
-    // near-coplanar (same normal, offset < 2e-5, transitively), so one depth
-    // order (d descending, draw order ascending) gives a monotone level to
-    // each: near-coplanar faces that meet at a pixel get adjacent levels and
-    // the per-level normal offset (kept > 1 D32 ulp at every range) strictly
-    // separates them. Faces in different components keep independent levels,
-    // but they are not near-coplanar (offset >= 2e-5), so they are already
-    // > 1 D32 ulp apart and never z-fight.
-    std::map<sys::u32, std::vector<u32>> comps;
-    for (u32 i = 0; i < faces.size(); ++i)
-        comps[find(find, i)].push_back(i);
-
-    for (auto& pr : comps) {
-        auto& idxs = pr.second;
-        // Nearest face first (largest d = closest to the eye along the
-        // outward normal), exact-coplanar ties by draw order. d is
-        // quantized to 1e-6 in the comparator: smaller differences are f32
-        // noise of true coplanar faces and must be treated as ties.
-        std::sort(idxs.begin(), idxs.end(), [&](u32 a, u32 b) {
-            const sys::i32 ka = sys::i32(glm::floor(faces[a].d / 1e-6f + 0.5f));
-            const sys::i32 kb = sys::i32(glm::floor(faces[b].d / 1e-6f + 0.5f));
-            if (ka != kb)
-                return ka > kb;
-            return a < b;
-        });
-        for (u32 rank = 0; rank < idxs.size(); ++rank) {
-            const raw_face& rf  = faces[idxs[rank]];
-            const f32        lvl = f32(rank + 1);
-            if (clipped[idxs[rank]]) {
-                // Emit the clip pieces where the quad would go, fan
-                // triangulated, with the original face's level and normal.
-                // 3D positions are reconstructed on the face's own plane
-                // (d * n + s * u + t * v), which snaps f32 wobble off the
-                // plane; unwound pieces are CCW, so culling is unchanged.
-                const frame2d& fr = frames[idxs[rank]];
-                for (const auto& piece : *clipped[idxs[rank]]) {
-                    const u32 pb = u32(out.vertices.size());
-                    for (const auto& pt : piece)
-                        out.vertices.push_back(mesh_vertex{rf.d * rf.nrm + pt.s * fr.u + pt.t * fr.v, glm::vec2{pt.u, pt.v}, lvl, rf.nrm});
-                    for (u32 k = 1; k + 1 < u32(piece.size()); ++k)
-                        out.indices.insert(out.indices.end(), {pb, pb + k, pb + k + 1});
-                    out.face_sizes.push_back(u32(piece.size()));
-                }
-            } else {
-                const u32 base = u32(out.vertices.size());
-                for (u32 q = 0; q < 4; ++q)
-                    out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], lvl, rf.nrm});
-                out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
-                out.face_sizes.push_back(4);
-            }
-        }
-    }
-    } else {
-        // De-fighting disabled: emit every face as a whole quad at its
-        // natural depth (level 0 -> no normal offset in the vertex shader, no
-        // clipping). Exact-coplanar ties are broken by the depth buffer
-        // (gl_LESS: first drawn wins), matching vanilla MC. This is the fast
-        // path; it trades away the de-fighting for speed.
-        for (u32 i = 0; i < faces.size(); ++i) {
-            const raw_face& rf  = faces[i];
-            const u32        base = u32(out.vertices.size());
-            for (u32 q = 0; q < 4; ++q)
-                out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], 0.f, rf.nrm});
-            out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
-            out.face_sizes.push_back(4);
-        }
+        const raw_face& rf  = faces[i];
+        const u32        base = u32(out.vertices.size());
+        for (u32 q = 0; q < 4; ++q)
+            out.vertices.push_back(mesh_vertex{rf.p[q], rf.uv[q], 0.f, rf.nrm});
+        out.indices.insert(out.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+        out.face_sizes.push_back(4);
     }
     return out;
 }
