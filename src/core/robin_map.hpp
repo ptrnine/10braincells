@@ -205,11 +205,11 @@ struct robin_map_bucket_base<K, V> {
         return core::construct_at(&_value, fwd(args)...);
     }
 
-    constexpr void set_value(auto&& value) {
+    constexpr void set_value(auto&& new_value) {
         if (empty())
-            construct_value(fwd(value));
+            construct_value(fwd(new_value));
         else
-            value() = fwd(value);
+            value() = fwd(new_value);
     }
 
     constexpr void destroy() {
@@ -326,7 +326,9 @@ public:
                 _data[i] = mov(new_bucket);
                 _data[i].set_distance(u16(dist));
                 ++_occupied;
-                return tuple{robin_map_iterator{&_data[i]}, true};
+                // The new key was swapped into _data[idx]; _data[i] holds the
+                // relocated (previously occupied) bucket.
+                return tuple{robin_map_iterator{&_data[idx]}, true};
             }
             else if (_data[i].distance() < dist) {
                 TBC_DSA_LOG("robin_map::emplace() replace => idx: %zu\n", i);
@@ -366,6 +368,11 @@ public:
         for (auto next = next_idx(idx); _data[next].distance() > 1;) {
             _data[idx] = mov(_data[next]);
             _data[idx].set_distance(_data[idx].distance() - 1);
+            // For trivially move-assignable values the bucket move-assign above
+            // is a plain member-wise copy that leaves the source set; clear it.
+            // (For non-trivial values the traits already destroyed it, so this
+            // is a no-op.)
+            _data[next].destroy();
             idx = next;
             next = next_idx(next);
         }
