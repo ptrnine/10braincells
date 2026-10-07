@@ -334,42 +334,42 @@ TEST_CASE("static_int_map") {
         CHECK(m.empty());
 
         m.emplace(3, 1);
-        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 1, 1});
+        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 1, 0});
         CHECK(get_keys(m) == array<i32, 5>{0, 0, 0, 3, 0});
         CHECK(m.size() == 1);
 
         m.emplace(2, 2);
-        CHECK(get_dists(m) == array<u16, 5>{0, 0, 1, 1, 1});
+        CHECK(get_dists(m) == array<u16, 5>{0, 0, 1, 1, 0});
         CHECK(get_keys(m) == array<i32, 5>{0, 0, 2, 3, 0});
         CHECK(m.size() == 2);
 
         m.emplace(6, 3);
-        CHECK(get_dists(m) == array<u16, 5>{2, 0, 1, 2, 1});
+        CHECK(get_dists(m) == array<u16, 5>{2, 0, 1, 2, 0});
         CHECK(get_keys(m) == array<i32, 5>{3, 0, 2, 6, 0});
         CHECK(m.size() == 3);
 
         m.emplace(10, 4);
-        CHECK(get_dists(m) == array<u16, 5>{3, 3, 1, 2, 1});
+        CHECK(get_dists(m) == array<u16, 5>{3, 3, 1, 2, 0});
         CHECK(get_keys(m) == array<i32, 5>{10, 3, 2, 6, 0});
         CHECK(m.size() == 4);
 
         // Erasing back-shifts entries; the shifted entries must stay findable.
         CHECK(m.erase(10));
-        CHECK(get_dists(m) == array<u16, 5>{2, 0, 1, 2, 1});
+        CHECK(get_dists(m) == array<u16, 5>{2, 0, 1, 2, 0});
         CHECK(get_keys(m) == array<i32, 5>{3, 0, 2, 6, 0});
         CHECK(m.size() == 3);
 
         CHECK(m.erase(6));
-        CHECK(get_dists(m) == array<u16, 5>{0, 0, 1, 1, 1});
+        CHECK(get_dists(m) == array<u16, 5>{0, 0, 1, 1, 0});
         CHECK(get_keys(m) == array<i32, 5>{0, 0, 2, 3, 0});
         CHECK(m.size() == 2);
 
         CHECK(m.erase(2));
-        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 1, 1});
+        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 1, 0});
         CHECK(m.size() == 1);
 
         CHECK(m.erase(3));
-        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 0, 1});
+        CHECK(get_dists(m) == array<u16, 5>{0, 0, 0, 0, 0});
         CHECK(m.size() == 0);
         CHECK(m.empty());
 

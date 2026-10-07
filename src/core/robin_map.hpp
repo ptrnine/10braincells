@@ -4,6 +4,8 @@
 //#define TBC_DSA_DEBUG
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <core/array.hpp>
 #include <core/concepts/assign.hpp>
@@ -59,15 +61,19 @@ public:
     using const_key_t = decltype(declval<const BucketT>().key());
     using V           = remove_ref<decltype(declval<BucketT>().value())>;
 
-    constexpr robin_map_iterator(): _ptr(nullptr) {}
-    constexpr robin_map_iterator(BucketT* ptr): _ptr(ptr) {
-        while (_ptr->empty())
+    // _end points one past the last probeable bucket; it is only used as a
+    // bound and is never dereferenced. A null (_ptr, _end) pair is the valid
+    // "no buckets" state (e.g. begin()/end() of a dynamic map that has not
+    // been allocated yet).
+    constexpr robin_map_iterator(): _ptr(nullptr), _end(nullptr) {}
+    constexpr robin_map_iterator(BucketT* ptr, BucketT* end): _ptr(ptr), _end(end) {
+        while (_ptr != _end && _ptr->empty())
             ++_ptr;
     }
 
     constexpr robin_map_iterator& operator++() {
         ++_ptr;
-        while (_ptr->empty())
+        while (_ptr != _end && _ptr->empty())
             ++_ptr;
         return *this;
     }
@@ -99,6 +105,7 @@ public:
 
 private:
     BucketT* _ptr;
+    BucketT* _end;
 };
 
 struct robin_map_bucket_ca_traits {
@@ -172,9 +179,7 @@ struct robin_map_bucket_base {
 
     // Header layout: bits 47:32 hold the distance (0 => empty bucket), bit
     // 15 marks the key live, bit 14 marks the value live. The live bits let
-    // a bucket carry a header (e.g. the map's sentinel bucket, which
-    // terminates the iterator's empty-bucket skip) without holding a live
-    // key or value.
+    // a bucket carry a header without holding a live key or value.
     static constexpr u64 key_live_mask   = 1ull << 15;
     static constexpr u64 value_live_mask = 1ull << 14;
     static constexpr u64 live_mask       = key_live_mask | value_live_mask;
@@ -469,38 +474,56 @@ public:
     //    details::ptr_map_max_distance > MaxSize + 1 ? MaxSize + 1 : details::ptr_map_max_distance;
 
     constexpr robin_map_impl() {
-        // The sentinel bucket at index capacity() is never probed (next_idx
-        // wraps modulo capacity()); its distance-1 header terminates the
-        // iterator's empty-bucket skip. Generic buckets carry no live
-        // key/value there (set_distance preserves the live bits, which are
-        // unset).
-        if constexpr (have_static_storage)
-            _data[capacity()].set_distance(1);
+        // The last bucket slot (index capacity()) is never probed (next_idx
+        // wraps modulo capacity()); it stays an empty bucket and only serves
+        // as the iterator's end bound. Dynamic storage is allocated lazily
+        // on the first emplace() (see rehash()); an empty container has no
+        // buckets at all.
     }
 
     constexpr auto begin(this auto&& it) {
-        return robin_map_iterator{it._data.data()};
+        return robin_map_iterator{it.capacity() ? it._data.data() : nullptr,
+                                   it.capacity() ? it._data.data() + it.capacity() : nullptr};
     }
 
     constexpr auto end(this auto&& it) {
-        return robin_map_iterator{it._data.data() + it.capacity()};
+        auto end_ptr = it.capacity() ? it._data.data() + it.capacity() : nullptr;
+        return robin_map_iterator{end_ptr, end_ptr};
+    }
+
+    // Iterator pointing at the bucket at idx (never the end slot). The
+    // iterator type follows the const-ness of the map (as with begin()/end()).
+    constexpr auto bucket_it(this auto&& it, size_t idx) {
+        return robin_map_iterator{&it._data[idx], it._data.data() + it.capacity()};
     }
 
 
     constexpr auto emplace(auto&& key, auto&&... args) {
-        size_t idx = to_idx(key);
+        size_t idx = 0;
         size_t dist = 1;
+
+        if constexpr (have_static_storage) {
+            // Probe first: emplacing an existing key into a full static table
+            // must succeed (return inserted = false) rather than throw.
+            idx = to_idx(key);
+        }
+        else {
+            // Grow (or initialize) the table before probing: probe positions
+            // from an old table would be invalid in the new one.
+            if (_data.empty() || _occupied == capacity())
+                rehash(_data.empty() ? initial_capacity : capacity() * 2 + 1);
+            idx = to_idx(key);
+        }
 
         TBC_DSA_LOG("robin_map::emplace() idx: %zu bucket_dist: %zu dist: %zu\n", idx, _data[idx].distance(), dist);
 
         for (; dist != max_distance() && _data[idx].distance() >= dist; idx = next_idx(idx), ++dist) {
             if (_data[idx].key() == key) {
                 TBC_DSA_LOG("robin_map::emplace() found bucket => idx: %zu dist: %zu\n", idx, dist);
-                return tuple{robin_map_iterator{&_data[idx]}, false};
+                return tuple{bucket_it(idx), false};
             }
         }
 
-        static_assert(have_static_storage);
         if constexpr (have_static_storage) {
             TBC_DSA_LOG("robin_map::emplace() static storage check => occupied: %zu capacity: %zu\n", _occupied, capacity());
             if (_occupied == capacity())
@@ -513,7 +536,7 @@ public:
             _data[idx].init_header(u16(dist), key);
             _data[idx].construct_value(fwd(args)...);
             ++_occupied;
-            return tuple{robin_map_iterator{&_data[idx]}, true};
+            return tuple{bucket_it(idx), true};
         }
 
         TBC_DSA_LOG("robin_map::emplace() place instead of old => idx: %zu\n", idx);
@@ -530,7 +553,7 @@ public:
                 ++_occupied;
                 // The new key was swapped into _data[idx]; _data[i] holds the
                 // relocated (previously occupied) bucket.
-                return tuple{robin_map_iterator{&_data[idx]}, true};
+                return tuple{bucket_it(idx), true};
             }
             else if (_data[i].distance() < dist) {
                 TBC_DSA_LOG("robin_map::emplace() replace => idx: %zu\n", i);
@@ -592,10 +615,10 @@ public:
     }
 
     constexpr auto find(this auto&& it, const auto& key) {
-        for (size_t idx = it.to_idx(key), dist = 1; dist != max_distance() && it._data[idx].distance() >= dist;
+        for (size_t idx = it.to_idx(key), dist = 1; dist != it.max_distance() && it._data[idx].distance() >= dist;
              idx = it.next_idx(idx), ++dist) {
             if (it._data[idx].key() == key)
-                return robin_map_iterator{&it._data[idx]};
+                return it.bucket_it(idx);
         }
 
         return it.end();
@@ -612,6 +635,8 @@ public:
     constexpr size_t capacity() const {
         if constexpr (have_static_storage)
             return Container::size() - 1;
+        else
+            return _data.empty() ? 0 : _data.size() - 1;
     }
 
     constexpr bool empty() const {
@@ -633,12 +658,39 @@ public:
     }
 
 private:
-    static constexpr size_t max_distance() {
+    // Initial usable bucket count for dynamically-sized maps (the vector holds
+    // initial_capacity + 1 slots including the sentinel).
+    static constexpr size_t initial_capacity = 7;
+
+    inline constexpr size_t max_distance() const {
         if constexpr (have_static_storage) {
             constexpr auto max_dist = limits<robin_map_distance_t>::max();
             return max_dist > Container::size() ? Container::size() + 1 : max_dist;
-        } else
-            return MaxDist;
+        }
+        else
+            return _data.size() + 1;
+    }
+
+    // Grow (or initialize) the dynamic table to new_capacity usable buckets:
+    // allocate a fresh container (the last slot stays empty and serves as the
+    // iterator's end bound), swap it in and re-insert every live bucket.
+    // Insertion order does not matter for the robin invariant, so re-inserting
+    // the keys in table order is valid.
+    // new_capacity must exceed the current occupancy, so emplace() cannot
+    // trigger a recursive rehash.
+    constexpr void rehash(size_t new_capacity) {
+        Container fresh;
+        fresh.resize(new_capacity + 1);
+        std::swap(_data, fresh);
+        _occupied = 0;
+
+        for (auto p = fresh.data(), e = fresh.data() + (fresh.empty() ? 0 : fresh.size() - 1); p != e; ++p) {
+            if (!p->empty()) {
+                auto key = p->key();
+                emplace(key, mov(p->value()));
+                p->destroy();
+            }
+        }
     }
 
     inline constexpr size_t next_idx(size_t idx) const {
@@ -647,7 +699,7 @@ private:
 
     inline constexpr size_t to_idx(const key_t& key) const {
         auto idx = Hash{}(key);
-        return size_t(idx % capacity());
+        return capacity() ? size_t(idx % capacity()) : 0;
     }
 
 private:
@@ -748,6 +800,17 @@ template <typename K, size_t MaxSize>
 using static_hash_set = robin_set_impl<
     array<robin_map_bucket<robin_map_bucket_base<K, robin_map_no_value>, robin_map_no_value>, MaxSize + 1>,
     hash_impl<K>>;
+
+/*
+ * Dynamic storage: std::vector-backed robin_map that grows (doubling) when
+ * it fills up. The allocator is passed through as a template argument.
+ */
+template <typename K, typename V>
+using robin_hash_bucket = robin_map_bucket<robin_map_bucket_base<K, V>, V>;
+
+template <typename K, typename V, typename Alloc = std::allocator<robin_hash_bucket<K, V>>>
+    requires(copy_ctor<K> && copy_assign<K>)
+using hash_map = robin_map_impl<V, std::vector<robin_hash_bucket<K, V>, Alloc>, hash_impl<K>>;
 } // namespace core
 
 #undef fwd

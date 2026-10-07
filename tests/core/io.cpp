@@ -50,22 +50,22 @@ TEST_CASE("io_common") {
 
         io::in in3{std::vector<u8>{}};
         static_assert(type<decltype(in3.base_buff())> == type<std::vector<u8>&>);
-        static_assert(type<decltype(as_const(in3).base_buff())> == type<const std::vector<u8>&>);
+        static_assert(type<decltype(core::as_const(in3).base_buff())> == type<const std::vector<u8>&>);
 
         io::out out3{std::vector<u8>{}};
         static_assert(type<decltype(out3.base_buff())> == type<std::vector<u8>&>);
-        static_assert(type<decltype(as_const(out3).base_buff())> == type<const std::vector<u8>&>);
+        static_assert(type<decltype(core::as_const(out3).base_buff())> == type<const std::vector<u8>&>);
 
         std::vector<u8> buff;
 
-        io::in in4{as_const(buff)};
+        io::in in4{core::as_const(buff)};
         static_assert(type<decltype(in4.base_buff())> == type<io::rw_impl_buff_ref<const std::vector<u8>>&>);
-        static_assert(type<decltype(as_const(in4).base_buff())> ==
+        static_assert(type<decltype(core::as_const(in4).base_buff())> ==
                       type<const io::rw_impl_buff_ref<const std::vector<u8>>&>);
 
         io::out out4{buff};
         static_assert(type<decltype(out4.base_buff())> == type<io::rw_impl_buff_ref<std::vector<u8>>&>);
-        static_assert(type<decltype(as_const(out4).base_buff())> == type<const io::rw_impl_buff_ref<std::vector<u8>>&>);
+        static_assert(type<decltype(core::as_const(out4).base_buff())> == type<const io::rw_impl_buff_ref<std::vector<u8>>&>);
 
         io::in in5{file};
         static_assert(type<decltype(in5.fd())> == type<const io::fd_t&>);

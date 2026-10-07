@@ -20,6 +20,7 @@ add_executable(tests-core
     xxhash.cpp
     hash.cpp
     robin_map.cpp
+    hash_map.cpp
 )
 
 target_compile_options(tests-core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctor-dtor-privacy>)

@@ -59,49 +59,49 @@ TEST_CASE("static_ptr_map") {
         CHECK(m.empty());
 
         m.emplace(p + 3, "1");
-        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 1, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 1, 0});
         CHECK(get_keys(m) == array<const int*, 5>{o, o, o, p + 3, o});
         CHECK(m.size() == 1);
         CHECK(!m.empty());
 
         m.emplace(p + 2, "2");
-        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 1, 1, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 1, 1, 0});
         CHECK(get_keys(m) == array<const int*, 5>{o, o, p + 2, p + 3, o});
         CHECK(m.size() == 2);
         CHECK(!m.empty());
 
         m.emplace(p + 6, "3");
-        CHECK(get_dists(m) == array<size_t, 5>{2, 0, 1, 2, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{2, 0, 1, 2, 0});
         CHECK(get_keys(m) == array<const int*, 5>{p + 3, o, p + 2, p + 6, o});
         CHECK(m.size() == 3);
         CHECK(!m.empty());
 
         m.emplace(p + 10, "0");
-        CHECK(get_dists(m) == array<size_t, 5>{3, 3, 1, 2, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{3, 3, 1, 2, 0});
         CHECK(get_keys(m) == array<const int*, 5>{p + 10, p + 3, p + 2, p + 6, o});
         CHECK(m.size() == 4);
         CHECK(!m.empty());
 
         CHECK(m.erase(p + 10));
-        CHECK(get_dists(m) == array<size_t, 5>{2, 0, 1, 2, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{2, 0, 1, 2, 0});
         CHECK(get_keys(m) == array<const int*, 5>{p + 3, o, p + 2, p + 6, o});
         CHECK(m.size() == 3);
         CHECK(!m.empty());
 
         CHECK(m.erase(p + 6));
-        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 1, 1, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 1, 1, 0});
         CHECK(get_keys(m) == array<const int*, 5>{o, o, p + 2, p + 3, o});
         CHECK(m.size() == 2);
         CHECK(!m.empty());
 
         CHECK(m.erase(p + 2));
-        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 1, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 1, 0});
         CHECK(get_keys(m) == array<const int*, 5>{o, o, o, p + 3, o});
         CHECK(m.size() == 1);
         CHECK(!m.empty());
 
         CHECK(m.erase(p + 3));
-        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 0, 1});
+        CHECK(get_dists(m) == array<size_t, 5>{0, 0, 0, 0, 0});
         CHECK(get_keys(m) == array<const int*, 5>{o, o, o, o, o});
         CHECK(m.size() == 0);
         CHECK(m.empty());
