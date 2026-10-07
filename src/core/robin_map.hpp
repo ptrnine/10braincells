@@ -265,10 +265,6 @@ struct robin_map_bucket_base {
         return header & value_live_mask;
     }
 
-    constexpr K key() {
-        return _key;
-    }
-
     constexpr const K& key() const {
         return _key;
     }
@@ -654,7 +650,7 @@ private:
 
         for (auto p = fresh.data(), e = fresh.data() + (fresh.empty() ? 0 : fresh.size() - 1); p != e; ++p) {
             if (!p->empty()) {
-                auto key = p->key();
+                const auto& key = p->key();
                 emplace(key, mov(p->value()));
                 p->destroy();
             }
