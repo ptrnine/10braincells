@@ -178,11 +178,15 @@ struct robin_map_bucket_base {
     using const_key_t = const K&;
 
     // Header layout: bits 47:32 hold the distance (0 => empty bucket), bit
-    // 15 marks the key live, bit 14 marks the value live. The live bits let
-    // a bucket carry a header without holding a live key or value.
+    // 15 marks the key live, bit 14 marks the value live, and bits 13:0 hold
+    // low bits of the key's hash (cheap collision pre-filter during probing,
+    // so a candidate bucket can be rejected without a full key compare).
+    // The live bits let a bucket carry a header without holding a live key
+    // or value.
     static constexpr u64 key_live_mask   = 1ull << 15;
     static constexpr u64 value_live_mask = 1ull << 14;
     static constexpr u64 live_mask       = key_live_mask | value_live_mask;
+    static constexpr u64 hash_bits_mask  = (1ull << 14) - 1;
 
     // The key does not travel with the header word and memberwise copy/move
     // would clobber live keys/values, so the special members are provided
@@ -255,9 +259,22 @@ struct robin_map_bucket_base {
         return assign(fwd(other));
     }
 
-    constexpr void init_header(u16 distance, const_key_t key) {
+    constexpr void init_header(u16 distance, const_key_t key, u64 hash = 0) {
         construct_at(&_key, key);
-        header = (u64(distance) << 32) | key_live_mask | (header & value_live_mask);
+        header = (u64(distance) << 32) | key_live_mask | ((hash & hash_bits_mask) | (header & value_live_mask));
+    }
+
+    // Stamp low hash bits into an already-initialized header (relocation
+    // path, where the bucket is built through the constructor).
+    constexpr void stamp_hash(u64 hash) {
+        header |= hash & hash_bits_mask;
+    }
+
+    // Pre-filter: does this bucket's stored hash match the probed key's hash?
+    // A stored key equal to the probed key always matches (hashing is
+    // deterministic), so this only ever rejects other keys' buckets.
+    constexpr bool hash_match(u64 hash) const {
+        return (header & hash_bits_mask) == (hash & hash_bits_mask);
     }
 
     constexpr bool empty() const {
@@ -285,7 +302,7 @@ struct robin_map_bucket_base {
     }
 
     constexpr void set_distance(u16 value) {
-        header = (u64(value) << 32) | (header & live_mask);
+        header = (u64(value) << 32) | (header & (live_mask | hash_bits_mask));
     }
 
     constexpr void set_key(const_key_t value) {
@@ -365,10 +382,16 @@ struct robin_map_bucket_base<K, V> {
         destroy();
     }
 
-    constexpr void init_header(u16 distance, const_key_t key) {
+    constexpr void init_header(u16 distance, const_key_t key, u64 hash = 0) {
         //__builtin_printf("init header dist: %i\n", int(distance));
+        (void)hash; // the key itself fills the header; no room for hash bits
         header = (u64(distance) << ptr_map_key_bits) | ((u64)key & ptr_map_key_mask);
     }
+
+    // The key (and with it its identifying bits) already lives in the header
+    // word, so no separate hash stamp or pre-filter is needed.
+    constexpr void stamp_hash(u64) {}
+    constexpr bool hash_match(u64) const { return true; }
 
     constexpr bool empty() const {
         return !header;
@@ -475,10 +498,10 @@ public:
 
     constexpr robin_map_impl() {
         // The last bucket slot (index capacity()) is never probed (next_idx
-        // wraps modulo capacity()); it stays an empty bucket and only serves
-        // as the iterator's end bound. Dynamic storage is allocated lazily
-        // on the first emplace() (see rehash()); an empty container has no
-        // buckets at all.
+        // wraps around: and-mask for dynamic storage, modulo for static);
+        // it stays an empty bucket and only serves as the iterator's end
+        // bound. Dynamic storage is allocated lazily on the first emplace()
+        // (see rehash()); an empty container has no buckets at all.
     }
 
     constexpr auto begin(this auto&& it) {
@@ -499,26 +522,29 @@ public:
 
 
     constexpr auto emplace(auto&& key, auto&&... args) {
+        auto hv = Hash{}(key);
         size_t idx = 0;
         size_t dist = 1;
 
         if constexpr (have_static_storage) {
             // Probe first: emplacing an existing key into a full static table
             // must succeed (return inserted = false) rather than throw.
-            idx = to_idx(key);
+            idx = to_idx(hv);
         }
         else {
             // Grow (or initialize) the table before probing: probe positions
-            // from an old table would be invalid in the new one.
-            if (_data.empty() || _occupied == capacity())
-                rehash(_data.empty() ? initial_capacity : capacity() * 2 + 1);
-            idx = to_idx(key);
+            // from an old table would be invalid in the new one. Never let the
+            // table run to full occupancy — probe lengths in a full robin
+            // table are unbounded — so grow at 4/5 load instead.
+            if (_data.empty() || _occupied * 5 >= capacity() * 4)
+                rehash(_data.empty() ? initial_capacity : capacity() * 2);
+            idx = to_idx(hv);
         }
 
         TBC_DSA_LOG("robin_map::emplace() idx: %zu bucket_dist: %zu dist: %zu\n", idx, _data[idx].distance(), dist);
 
         for (; dist != max_distance() && _data[idx].distance() >= dist; idx = next_idx(idx), ++dist) {
-            if (_data[idx].key() == key) {
+            if (_data[idx].hash_match(hv) && _data[idx].key() == key) {
                 TBC_DSA_LOG("robin_map::emplace() found bucket => idx: %zu dist: %zu\n", idx, dist);
                 return tuple{bucket_it(idx), false};
             }
@@ -533,7 +559,7 @@ public:
         if (_data[idx].empty()) {
             TBC_DSA_LOG("robin_map::emplace() place in empty bucket => idx: %zu dist: %zu\n", idx, dist);
 
-            _data[idx].init_header(u16(dist), key);
+            _data[idx].init_header(u16(dist), key, hv);
             _data[idx].construct_value(fwd(args)...);
             ++_occupied;
             return tuple{bucket_it(idx), true};
@@ -542,6 +568,7 @@ public:
         TBC_DSA_LOG("robin_map::emplace() place instead of old => idx: %zu\n", idx);
 
         bucket_t new_bucket{u16(dist), key, fwd(args)...};
+        new_bucket.stamp_hash(hv);
         swap(new_bucket, _data[idx]);
 
         for (size_t dist = new_bucket.distance() + 1, i = next_idx(idx);; i = next_idx(i)) {
@@ -615,9 +642,10 @@ public:
     }
 
     constexpr auto find(this auto&& it, const auto& key) {
-        for (size_t idx = it.to_idx(key), dist = 1; dist != it.max_distance() && it._data[idx].distance() >= dist;
+        auto hv = Hash{}(key);
+        for (size_t idx = it.to_idx(hv), dist = 1; dist != it.max_distance() && it._data[idx].distance() >= dist;
              idx = it.next_idx(idx), ++dist) {
-            if (it._data[idx].key() == key)
+            if (it._data[idx].hash_match(hv) && it._data[idx].key() == key)
                 return it.bucket_it(idx);
         }
 
@@ -659,8 +687,9 @@ public:
 
 private:
     // Initial usable bucket count for dynamically-sized maps (the vector holds
-    // initial_capacity + 1 slots including the sentinel).
-    static constexpr size_t initial_capacity = 7;
+    // initial_capacity + 1 slots including the sentinel). Power of two so
+    // dynamic indexing is a cheap and-mask (see to_idx/next_idx).
+    static constexpr size_t initial_capacity = 8;
 
     inline constexpr size_t max_distance() const {
         if constexpr (have_static_storage) {
@@ -671,9 +700,10 @@ private:
             return _data.size() + 1;
     }
 
-    // Grow (or initialize) the dynamic table to new_capacity usable buckets:
-    // allocate a fresh container (the last slot stays empty and serves as the
-    // iterator's end bound), swap it in and re-insert every live bucket.
+    // Grow (or initialize) the dynamic table to new_capacity usable buckets
+    // (a power of two, see initial_capacity): allocate a fresh container
+    // (the last slot stays empty and serves as the iterator's end bound),
+    // swap it in and re-insert every live bucket.
     // Insertion order does not matter for the robin invariant, so re-inserting
     // the keys in table order is valid.
     // new_capacity must exceed the current occupancy, so emplace() cannot
@@ -694,12 +724,15 @@ private:
     }
 
     inline constexpr size_t next_idx(size_t idx) const {
-        return (idx + 1) % capacity();
+        if constexpr (have_static_storage)
+            return (idx + 1) % capacity(); // static tables may have any size
+        return (idx + 1) & (capacity() - 1); // dynamic capacity is a power of two
     }
 
-    inline constexpr size_t to_idx(const key_t& key) const {
-        auto idx = Hash{}(key);
-        return capacity() ? size_t(idx % capacity()) : 0;
+    inline constexpr size_t to_idx(u64 hash) const {
+        if constexpr (have_static_storage)
+            return size_t(hash % capacity()); // static tables may have any size
+        return size_t(hash & (capacity() - 1)); // dynamic capacity is a power of two
     }
 
 private:

@@ -118,7 +118,7 @@ TEST_CASE("hash_map lazy allocation") {
         m.emplace(1, 100);
 
         CHECK(m.size() == 1);
-        CHECK(m.capacity() == 7); // initial_capacity
+        CHECK(m.capacity() == 8); // initial_capacity
         CHECK(m.find(1) != m.end());
         CHECK(m.at(1) == 100);
     }
@@ -127,15 +127,16 @@ TEST_CASE("hash_map lazy allocation") {
 TEST_CASE("hash_map capacity invariants") {
     hash_map<u64, i32> m;
 
-    // The capacity sequence is 7, 15, 31, ... = 2^k - 1, always >= size and
-    // never throwing (unlike the static maps).
+    // The capacity sequence is 8, 16, 32, ... = 2^k (power of two so dynamic
+    // indexing is an and-mask), always >= size and never throwing (unlike the
+    // static maps).
     for (size_t i = 0; i < 2000; ++i) {
         m.emplace(i, i32(i));
 
         size_t cap = m.capacity();
         CHECK(cap >= m.size());
-        CHECK(cap >= 7);
-        CHECK((cap & (cap + 1)) == 0); // 2^k - 1
+        CHECK(cap >= 8);
+        CHECK((cap & (cap - 1)) == 0); // power of two
         CHECK(m.at(i) == i32(i));
     }
 }
@@ -174,25 +175,28 @@ TEST_CASE("hash_map rehash preserves contents") {
     }
 }
 
-TEST_CASE("hash_map table exactly full") {
+TEST_CASE("hash_map growth at 4/5 load") {
+    // Dynamic maps grow when occupancy reaches 4/5 of capacity (they never
+    // run to full occupancy — probe lengths in a full robin table are
+    // unbounded). With the initial capacity of 8, the 8th insert (7*5 >=
+    // 8*4) triggers growth to 16. Static maps throw robin_map_overflow
+    // instead — see the static_hash_map tests.
     hash_map<u64, i32> m;
 
-    // Fill the initial table exactly to capacity (initial_capacity == 7).
-    for (size_t i = 0; i < 7; ++i)
+    for (size_t i = 0; i < 7; ++i)  // initial capacity is 8
         m.emplace(i, i32(i));
     REQUIRE(m.size() == 7);
-    REQUIRE(m.capacity() == 7);
+    REQUIRE(m.capacity() == 8);
 
-    // Overwriting an existing key in a full table must not throw and must not
-    // change the size. (As with std::unordered_map::insert, a dynamic map at
-    // capacity rehashes before probing; a static map would throw
-    // robin_map_overflow here instead.)
+    // Overwriting an existing key must not throw and must not change the size.
+    // (The table is already above the 4/5 threshold, so this emplace also
+    // triggers growth to 16.)
     auto [it, inserted] = m.emplace(3, 999);
     CHECK_FALSE(inserted);
     CHECK(it.key() == 3);
     CHECK(it.value() == 3); // emplace() does not overwrite existing values
     CHECK(m.size() == 7);
-    CHECK(m.capacity() == 15);
+    CHECK(m.capacity() == 16);
 
     m[3] = 999;
     CHECK(m.size() == 7);
@@ -202,10 +206,10 @@ TEST_CASE("hash_map table exactly full") {
     CHECK(m.size() == 7);
     CHECK(m.at(5) == 777);
 
-    // A brand-new key in a full table grows the table instead of throwing.
+    // A brand-new key below the threshold does not grow the table.
     m.emplace(100, 1);
     CHECK(m.size() == 8);
-    CHECK(m.capacity() == 15);
+    CHECK(m.capacity() == 16);
     CHECK(m.at(100) == 1);
     CHECK(m.at(3) == 999);
 }
@@ -282,7 +286,7 @@ TEST_CASE("hash_map custom allocator") {
     CHECK(counting_alloc::allocations > 0);
     size_t after_first = counting_alloc::allocations;
 
-    // Grow through several rehashes (7 -> 15 -> 31 -> 63 -> 127); every growth
+    // Grow through several rehashes (8 -> 16 -> 32 -> 64 -> 128); every growth
     // must ask the allocator for memory.
     for (u32 i = 0; i < 100; ++i)
         m.emplace(i, i32(i));

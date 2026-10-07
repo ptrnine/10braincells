@@ -27,6 +27,18 @@ struct hash_impl;
  * c-strings are handled separately (by content), floats are canonicalized,
  * and trivially-copyable types fall back to a byte hash at the end.
  */
+/*
+ * u64: identity. Equal values hash equal at zero cost; robin_map's dynamic
+ * capacity is a power of two, so the value's low bits index directly. (Keys
+ * that share low bits will cluster — the accepted trade for the free hash.)
+ */
+template <>
+struct hash_impl<u64> {
+    constexpr u64 operator()(const u64& value) const {
+        return value;
+    }
+};
+
 template <typename T> requires integral<T> || (is_ptr<T> && !c_string<T>)
 struct hash_impl<T> {
     constexpr u64 operator()(const T& value) const {
