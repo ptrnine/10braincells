@@ -1,6 +1,5 @@
 #pragma once
 
-
 //#define TBC_DSA_DEBUG
 
 #include <string>
@@ -28,30 +27,23 @@
 
 namespace core
 {
-class robin_map_exception : public core::exception {};
-
-class robin_map_overflow : public robin_map_exception {
+class robin_map_exception : public exception {
 public:
-    robin_map_overflow(std::string message): msg(mov(message)) {}
-
-    const char* what() const noexcept override {
-        return msg.data();
-    }
+    robin_map_exception(std::string message): msg(mov(message)) {}
+    const char* what() const noexcept override { return msg.data(); }
 
 private:
     std::string msg;
 };
 
+class robin_map_overflow : public robin_map_exception {
+public:
+    robin_map_overflow(std::string message): robin_map_exception(message) {}
+};
+
 class robin_map_key_not_found : public robin_map_exception {
 public:
-    robin_map_key_not_found(std::string message): msg(mov(message)) {}
-
-    const char* what() const noexcept override {
-        return msg.data();
-    }
-
-private:
-    std::string msg;
+    robin_map_key_not_found(std::string message): robin_map_exception(message) {}
 };
 
 template <typename BucketT>
@@ -61,10 +53,8 @@ public:
     using const_key_t = decltype(declval<const BucketT>().key());
     using V           = remove_ref<decltype(declval<BucketT>().value())>;
 
-    // _end points one past the last probeable bucket; it is only used as a
-    // bound and is never dereferenced. A null (_ptr, _end) pair is the valid
-    // "no buckets" state (e.g. begin()/end() of a dynamic map that has not
-    // been allocated yet).
+    // _end is only a bound, never dereferenced. (nullptr, nullptr) is the
+    // valid "no buckets" state for unallocated dynamic maps.
     constexpr robin_map_iterator(): _ptr(nullptr), _end(nullptr) {}
     constexpr robin_map_iterator(BucketT* ptr, BucketT* end): _ptr(ptr), _end(end) {
         while (_ptr != _end && _ptr->empty())
@@ -89,7 +79,6 @@ public:
     }
 
     constexpr const_key_t key() const {
-        // Const access so that non-trivial keys are not copied out.
         return static_cast<const BucketT*>(_ptr)->key();
     }
 
@@ -109,9 +98,6 @@ private:
 };
 
 struct robin_map_bucket_ca_traits {
-    // Keys stored in the bucket itself (generic keys) are materialized via
-    // construct_key() into an empty bucket and transferred via copy_key() into
-    // an occupied one; keys stored in the header word are copied with the header.
     constexpr static void cc(auto&& it, const auto& bucket) {
         if (!bucket.empty()) {
             it.construct_key(bucket);
@@ -163,35 +149,23 @@ struct robin_map_bucket_ca_traits {
 using robin_map_distance_t = u16;
 
 /*
- * Generic keys: keys that do not fit in the header word (neither pointers
- * nor small integrals) are stored in a separate `_key` member and hashed
- * via core::hash (hash_impl<K>). The header carries the distance plus live
- * flags for the key and the value.
- *
- * Requirements for K: copyable, comparable via `==`. Neither K nor V needs
- * to be default-constructible: the key and value live in unions and are
- * materialized (placement new) only while their live bit is set; an empty
- * bucket holds neither and destroy() destroys exactly the live members.
+ * Generic bucket: the key does not fit in the header word, so it lives in a
+ * separate member and is hashed via core::hash (hash_impl<K>). K must be
+ * copyable and `==`-comparable; neither K nor V needs default-constructibility.
  */
 template <typename K, typename V>
 struct robin_map_bucket_base {
     using const_key_t = const K&;
 
-    // Header layout: bits 47:32 hold the distance (0 => empty bucket), bit
-    // 15 marks the key live, bit 14 marks the value live, and bits 13:0 hold
-    // low bits of the key's hash (cheap collision pre-filter during probing,
-    // so a candidate bucket can be rejected without a full key compare).
-    // The live bits let a bucket carry a header without holding a live key
-    // or value.
+    // Header: bits 47:32 distance (0 => empty), bit 15 key live, bit 14 value
+    // live, bits 13:0 low key-hash bits (probe pre-filter).
     static constexpr u64 key_live_mask   = 1ull << 15;
     static constexpr u64 value_live_mask = 1ull << 14;
     static constexpr u64 live_mask       = key_live_mask | value_live_mask;
     static constexpr u64 hash_bits_mask  = (1ull << 14) - 1;
 
-    // The key does not travel with the header word and memberwise copy/move
-    // would clobber live keys/values, so the special members are provided
-    // explicitly (the ca_traits wrapper still intercepts them for
-    // non-trivial values via its Traits path).
+    // Keys do not travel with the header word, so memberwise copy/move/assign
+    // are handled explicitly.
     constexpr robin_map_bucket_base() = default;
 
     constexpr robin_map_bucket_base(u16 distance, const_key_t key, auto&&... args) {
@@ -264,15 +238,13 @@ struct robin_map_bucket_base {
         header = (u64(distance) << 32) | key_live_mask | ((hash & hash_bits_mask) | (header & value_live_mask));
     }
 
-    // Stamp low hash bits into an already-initialized header (relocation
-    // path, where the bucket is built through the constructor).
+    // Relocation path: stamp low hash bits into an already-built header.
     constexpr void stamp_hash(u64 hash) {
         header |= hash & hash_bits_mask;
     }
 
-    // Pre-filter: does this bucket's stored hash match the probed key's hash?
-    // A stored key equal to the probed key always matches (hashing is
-    // deterministic), so this only ever rejects other keys' buckets.
+    // A stored key equal to the probed key always matches, so this only
+    // ever rejects other keys' buckets.
     constexpr bool hash_match(u64 hash) const {
         return (header & hash_bits_mask) == (hash & hash_bits_mask);
     }
@@ -309,16 +281,13 @@ struct robin_map_bucket_base {
         _key = value;
     }
 
-    // Materialize the key in this bucket from another bucket (copy for
-    // lvalues, move for rvalues). The header-key specialization provides a
-    // no-op instead (its key travels with the header word).
+    // Key travels with a separate member here (the header-key specialization
+    // provides no-ops instead).
     constexpr void construct_key(auto&& other) {
         construct_at(&_key, fwd(other)._key);
         header |= key_live_mask;
     }
 
-    // Transfer the key from another bucket into this (key-live) bucket (copy
-    // for lvalues, move for rvalues).
     constexpr void copy_key(auto&& other) {
         _key = fwd(other)._key;
     }
@@ -362,7 +331,7 @@ struct robin_map_bucket_base {
     };
 };
 
-/* Implementation for pointer and u32/u16/u8 keys */
+// Bucket for pointer and u32/u16/u8 keys: the key lives in the header word.
 template <typename K, typename V> requires is_ptr<remove_cv<K>> || (integral<remove_cv<K>> && sizeof(K) <= 4)
 struct robin_map_bucket_base<K, V> {
     static constexpr u64 ptr_map_key_bits     = is_ptr<remove_cv<K>> ? 48 : 32;
@@ -383,13 +352,11 @@ struct robin_map_bucket_base<K, V> {
     }
 
     constexpr void init_header(u16 distance, const_key_t key, u64 hash = 0) {
-        //__builtin_printf("init header dist: %i\n", int(distance));
         (void)hash; // the key itself fills the header; no room for hash bits
         header = (u64(distance) << ptr_map_key_bits) | ((u64)key & ptr_map_key_mask);
     }
 
-    // The key (and with it its identifying bits) already lives in the header
-    // word, so no separate hash stamp or pre-filter is needed.
+    // The key already lives in the header word.
     constexpr void stamp_hash(u64) {}
     constexpr bool hash_match(u64) const { return true; }
 
@@ -410,7 +377,6 @@ struct robin_map_bucket_base<K, V> {
     }
 
     constexpr void set_distance(u16 value) {
-        //__builtin_printf("set_distance dist: %i\n", int(value));
         header = (u64(value) << ptr_map_key_bits) | (header & ptr_map_key_mask);
     }
 
@@ -418,7 +384,7 @@ struct robin_map_bucket_base<K, V> {
         header = (header & ~ptr_map_key_mask) | ((u64)value & ptr_map_key_mask);
     }
 
-    // The key lives in the header word; copying the header transfers it.
+    // The key travels with the header word.
     constexpr void construct_key(auto&&) {}
     constexpr void copy_key(auto&&) {}
 
@@ -485,7 +451,6 @@ struct int_identity_hash<T> {
     }
 };
 
-/* TODO: implement for dynamic storage */
 template <typename V, typename Container, typename Hash, robin_map_distance_t MaxDist = 0>
 class robin_map_impl {
 public:
@@ -493,16 +458,8 @@ public:
     using key_t = decltype(declval<bucket_t>().key());
     static constexpr bool have_static_storage = requires {Container::size();};
 
-    //static inline constexpr size_t max_distance =
-    //    details::ptr_map_max_distance > MaxSize + 1 ? MaxSize + 1 : details::ptr_map_max_distance;
-
-    constexpr robin_map_impl() {
-        // The last bucket slot (index capacity()) is never probed (next_idx
-        // wraps around: and-mask for dynamic storage, modulo for static);
-        // it stays an empty bucket and only serves as the iterator's end
-        // bound. Dynamic storage is allocated lazily on the first emplace()
-        // (see rehash()); an empty container has no buckets at all.
-    }
+    // The last bucket slot (index capacity()) is never probed (next_idx wraps
+    // around); it stays empty and serves as the iterator's end bound.
 
     constexpr auto begin(this auto&& it) {
         return robin_map_iterator{it.capacity() ? it._data.data() : nullptr,
@@ -514,12 +471,9 @@ public:
         return robin_map_iterator{end_ptr, end_ptr};
     }
 
-    // Iterator pointing at the bucket at idx (never the end slot). The
-    // iterator type follows the const-ness of the map (as with begin()/end()).
     constexpr auto bucket_it(this auto&& it, size_t idx) {
         return robin_map_iterator{&it._data[idx], it._data.data() + it.capacity()};
     }
-
 
     constexpr auto emplace(auto&& key, auto&&... args) {
         auto hv = Hash{}(key);
@@ -528,14 +482,12 @@ public:
 
         if constexpr (have_static_storage) {
             // Probe first: emplacing an existing key into a full static table
-            // must succeed (return inserted = false) rather than throw.
+            // must succeed rather than throw.
             idx = to_idx(hv);
         }
         else {
-            // Grow (or initialize) the table before probing: probe positions
-            // from an old table would be invalid in the new one. Never let the
-            // table run to full occupancy — probe lengths in a full robin
-            // table are unbounded — so grow at 4/5 load instead.
+            // Grow (or initialize) before probing. Never let the table run to
+            // full occupancy — grow at 4/5 load.
             if (_data.empty() || _occupied * 5 >= capacity() * 4)
                 rehash(_data.empty() ? initial_capacity : capacity() * 2);
             idx = to_idx(hv);
@@ -578,8 +530,6 @@ public:
                 _data[i] = mov(new_bucket);
                 _data[i].set_distance(u16(dist));
                 ++_occupied;
-                // The new key was swapped into _data[idx]; _data[i] holds the
-                // relocated (previously occupied) bucket.
                 return tuple{bucket_it(idx), true};
             }
             else if (_data[i].distance() < dist) {
@@ -613,18 +563,14 @@ public:
 
     template <typename B>
     constexpr void erase(robin_map_iterator<B> position) {
-        auto idx = position.pointer() -_data.data();
+        auto idx = position.pointer() - _data.data();
         position.pointer()->destroy();
         --_occupied;
 
         for (auto next = next_idx(idx); _data[next].distance() > 1;) {
             _data[idx] = mov(_data[next]);
             _data[idx].set_distance(_data[idx].distance() - 1);
-            // For trivially move-assignable values the bucket move-assign above
-            // is a plain member-wise copy that leaves the source set; clear it.
-            // (For non-trivial values the traits already destroyed it, so this
-            // is a no-op.)
-            _data[next].destroy();
+            _data[next].destroy(); // clears the source for trivially-assignable values
             idx = next;
             next = next_idx(next);
         }
@@ -652,7 +598,7 @@ public:
         return it.end();
     }
 
-    constexpr auto contains(const auto& key) const {
+    constexpr bool contains(const auto& key) const {
         return find(key) != end();
     }
 
@@ -686,9 +632,7 @@ public:
     }
 
 private:
-    // Initial usable bucket count for dynamically-sized maps (the vector holds
-    // initial_capacity + 1 slots including the sentinel). Power of two so
-    // dynamic indexing is a cheap and-mask (see to_idx/next_idx).
+    // Power of two, so dynamic indexing is a cheap and-mask.
     static constexpr size_t initial_capacity = 8;
 
     inline constexpr size_t max_distance() const {
@@ -700,14 +644,8 @@ private:
             return _data.size() + 1;
     }
 
-    // Grow (or initialize) the dynamic table to new_capacity usable buckets
-    // (a power of two, see initial_capacity): allocate a fresh container
-    // (the last slot stays empty and serves as the iterator's end bound),
-    // swap it in and re-insert every live bucket.
-    // Insertion order does not matter for the robin invariant, so re-inserting
-    // the keys in table order is valid.
-    // new_capacity must exceed the current occupancy, so emplace() cannot
-    // trigger a recursive rehash.
+    // Re-insert every live bucket of the old table. Insertion order does not
+    // matter for the robin invariant.
     constexpr void rehash(size_t new_capacity) {
         Container fresh;
         fresh.resize(new_capacity + 1);
@@ -817,12 +755,6 @@ using static_int_set = robin_set_impl<
     array<robin_map_bucket<robin_map_bucket_base<K, robin_map_no_value>, robin_map_no_value>, MaxSize + 1>,
     int_identity_hash<K>>;
 
-/*
- * Generic keys: keys that do not fit in the bucket header word (neither
- * pointers nor small integrals) are stored in the bucket itself and hashed
- * via core::hash (hash_impl<K>). K must be copyable and comparable via `==`
- * (default-constructibility is not required).
- */
 template <typename K, typename V, size_t MaxSize>
     requires(copy_ctor<K> && copy_assign<K>)
 using static_hash_map =
@@ -834,10 +766,7 @@ using static_hash_set = robin_set_impl<
     array<robin_map_bucket<robin_map_bucket_base<K, robin_map_no_value>, robin_map_no_value>, MaxSize + 1>,
     hash_impl<K>>;
 
-/*
- * Dynamic storage: std::vector-backed robin_map that grows (doubling) when
- * it fills up. The allocator is passed through as a template argument.
- */
+// Dynamic (std::vector-backed) storage; grows by doubling.
 template <typename K, typename V>
 using robin_hash_bucket = robin_map_bucket<robin_map_bucket_base<K, V>, V>;
 
